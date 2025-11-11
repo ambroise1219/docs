@@ -1,43 +1,45 @@
-# Mintlify Starter Kit
+# ONO Backend API Documentation
 
-Use the starter kit to get your docs deployed and ready to customize.
+Documentation complète de l'API ONO Backend construite avec Mintlify.
 
-Click the green **Use this template** button at the top of this repo to copy the Mintlify starter kit. The starter kit contains examples with
+## 🚀 À propos
 
-- Guide pages
-- Navigation
-- Customizations
-- API reference pages
-- Use of popular components
+Cette documentation couvre l'API ONO Backend, une solution modulaire en Rust qui alimente l'ensemble de la plateforme ONO. Elle fournit des services pour plusieurs domaines d'activité :
 
-**[Follow the full quickstart guide](https://starter.mintlify.com/quickstart)**
+- **Food** - Restaurants et commandes alimentaires
+- **Delivery** - Système de livraison complet
+- **Groceries** - Épicerie en ligne
+- **Pharmacy** - Pharmacies et services médicaux
+- **Social** - Réseau social de type TikTok
+- **Pulse** - Temps réel via gRPC, WebSocket et SSE
 
-## Development
+## 📦 Développement local
 
-Install the [Mintlify CLI](https://www.npmjs.com/package/mint) to preview your documentation changes locally. To install, use the following command:
+Pour prévisualiser la documentation localement, installez la [CLI Mintlify](https://www.npmjs.com/package/mintlify) :
 
-```
-npm i -g mint
-```
-
-Run the following command at the root of your documentation, where your `docs.json` is located:
-
-```
-mint dev
+```bash
+npm i -g mintlify
 ```
 
-View your local preview at `http://localhost:3000`.
+Lancez le serveur de développement à la racine de la documentation (où se trouve `docs.json`) :
 
-## Publishing changes
+```bash
+mintlify dev
+```
 
-Install our GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app) to propagate changes from your repo to your deployment. Changes are deployed to production automatically after pushing to the default branch.
+Accédez à la prévisualisation locale sur `http://localhost:3000`.
 
-## Need help?
+## 🔄 Publication des modifications
 
-### Troubleshooting
+Les modifications sont déployées automatiquement en production après un push sur la branche `main`.
 
-- If your dev environment isn't running: Run `mint update` to ensure you have the most recent version of the CLI.
-- If a page loads as a 404: Make sure you are running in a folder with a valid `docs.json`.
+## 🛠️ Dépannage
 
-### Resources
-- [Mintlify documentation](https://mintlify.com/docs)
+- **L'environnement de dev ne démarre pas** : Exécutez `mintlify update` pour avoir la dernière version de la CLI.
+- **Une page charge en 404** : Assurez-vous d'être dans un dossier avec un `docs.json` valide.
+
+## 📚 Resources
+
+- [Documentation Mintlify](https://mintlify.com/docs)
+- [Dépôt ONO Backend](https://github.com/ono/ono-backend)
+- [Support ONO](mailto:support@ono.app)
