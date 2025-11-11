@@ -1,0 +1,189 @@
+# Architecture
+
+L'API ONO Backend suit une architecture modulaire et multi-base de données conçue pour optimiser les performances, la sécurité et la scalabilité.
+
+## 🗄️ Structure Multi-Base de Données
+
+ONO utilise une architecture multi-database pour optimiser les performances, la sécurité et la scalabilité. Chaque branche métier dispose de sa propre base de données, avec une base centrale pour les données partagées.
+
+### Bases de Données par Domaine
+
+#### SHARED DB - Base Principale
+Contenu : Données centrales et partagées
+- `users` - Table centrale des utilisateurs
+- `auth_sessions` - Sessions d'authentification 
+- `global_logs` - Logs d'audit cross-branches
+- `global_notifications` - Notifications inter-branches
+- `cross_branch_relations` - Relations entre branches
+- `system_config` - Configuration système
+
+#### DELIVERY DB - Livraison
+Contenu : Système de livraison unifié
+- `delivery_zones` - Zones géographiques de livraison
+- `vehicles` - Véhicules des livreurs
+- `delivery_agents` - Agents avec tracking GPS
+- `delivery_orders` - Commandes de livraison
+- `delivery_tracking` - Suivi temps réel
+- `delivery_ratings` - Évaluations des livraisons
+- `delivery_incidents` - Gestion des problèmes
+
+#### FOOD DB - Restaurants
+Contenu : Écosystème restaurant et food delivery
+- `restaurants` - Restaurants partenaires
+- `food_categories` - Catégories de plats
+- `dishes` - Menu et plats avec nutrition
+- `food_orders` - Commandes restaurant
+- `food_order_items` - Items avec personnalisations
+- `food_reviews` - Avis clients détaillés
+- `food_promotions` - Codes promo et réductions
+
+#### SOCIAL DB - Média Social
+Contenu : Plateforme social media complète
+- `posts` - Publications avec médias
+- `live_streams` - Lives en temps réel
+- `comments` - Commentaires avec threading
+- `likes` - Likes et réactions
+- `follows` - Abonnements utilisateurs
+- `conversations` - Chat privé et groupes
+- `messages` - Messages avec médias
+- `notifications` - Notifications push
+- `trending_hashtags` - Tendances
+- `reports` - Modération de contenu
+
+#### GROCERIES DB - Épicerie
+Contenu : Supermarchés et produits alimentaires
+- `grocery_stores` - Magasins partenaires
+- `product_categories` - Catégories hiérarchiques
+- `products` - Catalogue avec stock
+- `grocery_orders` - Commandes épicerie
+- `grocery_order_items` - Items avec substitutions
+
+#### PHARMACY DB - Pharmacie & Santé
+Contenu : Pharmacies et consultations médicales
+- `pharmacies` - Pharmacies agréées
+- `medicine_categories` - Catégories médicales
+- `medicines` - Catalogue médicaments
+- `doctors` - Médecins certifiés
+- `prescriptions` - Ordonnances validées
+- `prescription_items` - Médicaments prescrits
+- `medical_consultations` - Téléconsultations
+- `pharmacy_orders` - Commandes avec assurance
+
+## 🏗️ Structure Modulaire
+
+Le code est organisé en modules métier suivant le pattern handlers → services → repository :
+
+```
+src/modules/
+├── auth/
+├── delivery/
+├── food/
+├── groceries/
+├── housing/
+├── insurance/
+├── pharmacy/
+├── social/
+└── users/
+```
+
+Chaque module contient :
+- `handlers/` - Couche HTTP (validation, extraction, status codes)
+- `services/` - Logique métier orchestrant dépôts, validation, side‑effects
+- `repository/` - Requêtes SQLx typées par entité
+- `models/` - Entités persistées et DTOs
+
+## 🔌 État Applicatif et Services
+
+L'état de l'application est géré par `AppState` qui expose :
+
+```
+AppState (Arc)
+├─ db_pools: DatabaseManager
+├─ config: EnvironmentConfig
+├─ pulse: PulseState
+├─ services
+│  ├─ FoodService (pool: food)
+│  ├─ OtpService (Wanotifier + règles OTP)
+│  ├─ OtpAuthService (pool: shared + JWT)
+│  ├─ AuthService (refresh/logout + JWT)
+│  └─ UserService (pool: shared)
+└─ exposé aux handlers via Axum .with_state(AppState)
+```
+
+## 🎯 Avantages de cette Architecture
+
+### Performance
+- **Isolation des charges** - Chaque branche a ses propres ressources
+- **Scaling indépendant** - Optimisation par usage
+- **Pas de contention** - Pas de conflits entre branches
+- **Index spécialisés** - Optimisés pour chaque domaine
+
+### Sécurité
+- **Isolation des données** - Données médicales séparées
+- **Accès granulaire** - Permissions par branche
+- **Audit séparé** - Logs spécialisés par domaine
+- **Conformité** - RGPD facilité par l'isolation
+
+### Maintenance
+- **Migrations indépendantes** - Déploiements sans impact
+- **Rollback isolé** - Problèmes contenus
+- **Monitoring spécialisé** - Métriques par branche
+- **Backup sélectif** - Sauvegarde ciblée
+
+## 🔔 Pu
+lse - Système de Notifications Temps Réel
+
+Pulse est le système de messagerie temps réel d'ONO qui gère toutes les notifications et communications entre services.
+
+### Composants Principaux
+
+- **Event Bus Hybride** : Redis (persistance) + Broadcast (temps réel en mémoire)
+- **gRPC Server** : Communication haute performance sur port 50052
+- **SSE** : Server-Sent Events pour notifications web
+- **WebSocket** : Communication bidirectionnelle pour chat et tracking
+- **Cache Redis** : Optimisation des performances et sessions
+
+### Flux de Notifications
+
+```
+Service (Food/Delivery/etc.)
+    ↓
+Pulse Event Bus
+    ↓
+├─→ Redis Streams (persistance)
+└─→ Broadcast Channel (temps réel)
+    ↓
+Consumer
+    ↓
+ConnectionManager
+    ↓
+Clients (SSE/WebSocket/gRPC)
+```
+
+### Événements Disponibles
+
+**Module Food**
+- `food.order.created` - Nouvelle commande créée
+- `food.order.status_changed` - Changement de statut
+- `food.delivery.assigned` - Livreur assigné
+
+**Module Delivery**
+- `delivery.status_updated` - Mise à jour statut livraison
+- `delivery.location_updated` - Position GPS du livreur
+- `delivery.completed` - Livraison terminée
+
+### Configuration
+
+```bash
+# Event Bus Type
+EVENT_BUS_TYPE=hybrid  # ou redis, nats, kafka
+
+# Redis
+REDIS_URL=redis://localhost:6379
+REDIS_MAX_CONNECTIONS=50
+
+# gRPC
+GRPC_PORT=50052
+```
+
+Voir [Documentation Pulse](/api-reference/pulse) et [Guide d'Intégration](/guides/pulse-integration) pour plus de détails.

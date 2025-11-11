@@ -1,0 +1,206 @@
+# Social API
+
+L'API Social permet de gérer les publications, les commentaires, les likes et les fonctionnalités de réseau social.
+
+## 📱 Publications
+
+### Lister les publications
+
+```http
+GET /api/social/posts
+```
+
+**Paramètres de requête :**
+- `page` (optionnel) - Numéro de page pour la pagination
+- `limit` (optionnel) - Nombre de résultats par page
+- `user_id` (optionnel) - Filtrer par utilisateur
+
+### Créer une publication
+
+```http
+POST /api/social/posts
+Authorization: Bearer <access_token>
+Content-Type: application/json
+
+{
+  "content": "Ma première publication !",
+  "media_urls": ["https://example.com/image1.jpg"],
+  "visibility": "public"
+}
+```
+
+### Récupérer une publication
+
+```http
+GET /api/social/posts/{post_id}
+```
+
+### Mettre à jour une publication
+
+```http
+PUT /api/social/posts/{post_id}
+Authorization: Bearer <access_token>
+Content-Type: application/json
+
+{
+  "content": "Mon contenu mis à jour"
+}
+```
+
+### Supprimer une publication
+
+```http
+DELETE /api/social/posts/{post_id}
+Authorization: Bearer <access_token>
+```
+
+## 💬 Commentaires
+
+### Lister les commentaires d'une publication
+
+```http
+GET /api/social/posts/{post_id}/comments
+```
+
+### Créer un commentaire
+
+```http
+POST /api/social/posts/{post_id}/comments
+Authorization: Bearer <access_token>
+Content-Type: application/json
+
+{
+  "content": "Super publication !",
+  "parent_comment_id": "comment-uuid" // Optionnel, pour les réponses
+}
+```
+
+### Mettre à jour un commentaire
+
+```http
+PUT /api/social/comments/{comment_id}
+Authorization: Bearer <access_token>
+Content-Type: application/json
+
+{
+  "content": "Contenu du commentaire mis à jour"
+}
+```
+
+### Supprimer un commentaire
+
+```http
+DELETE /api/social/comments/{comment_id}
+Authorization: Bearer <access_token>
+```
+
+## ❤️ Likes
+
+### Liker une publication
+
+```http
+POST /api/social/posts/{post_id}/like
+Authorization: Bearer <access_token>
+```
+
+### Disliker une publication
+
+```http
+DELETE /api/social/posts/{post_id}/like
+Authorization: Bearer <access_token>
+```
+
+### Liker un commentaire
+
+```http
+POST /api/social/comments/{comment_id}/like
+Authorization: Bearer <access_token>
+```
+
+### Disliker un commentaire
+
+```http
+DELETE /api/social/comments/{comment_id}/like
+Authorization: Bearer <access_token>
+```
+
+## 👥 Abonnements
+
+### S'abonner à un utilisateur
+
+```http
+POST /api/social/users/{user_id}/follow
+Authorization: Bearer <access_token>
+```
+
+### Se désabonner d'un utilisateur
+
+```http
+DELETE /api/social/users/{user_id}/follow
+Authorization: Bearer <access_token>
+```
+
+### Lister ses abonnements
+
+```http
+GET /api/social/following
+Authorization: Bearer <access_token>
+```
+
+### Lister ses abonnés
+
+```http
+GET /api/social/followers
+Authorization: Bearer <access_token>
+```
+
+## 📢 Notifications
+
+### Lister les notifications
+
+```http
+GET /api/social/notifications
+Authorization: Bearer <access_token>
+```
+
+### Marquer une notification comme lue
+
+```http
+PUT /api/social/notifications/{notification_id}/read
+Authorization: Bearer <access_token>
+```
+
+### Marquer toutes les notifications comme lues
+
+```http
+PUT /api/social/notifications/read-all
+Authorization: Bearer <access_token>
+```
+
+## 🏷️ Hashtags
+
+### Rechercher par hashtag
+
+```http
+GET /api/social/hashtags/{hashtag}
+```
+
+### Tendances des hashtags
+
+```http
+GET /api/social/hashtags/trending
+```
+
+## 📊 Statistiques
+
+### Statistiques d'un utilisateur
+
+```http
+GET /api/social/users/{user_id}/stats
+```
+
+### Statistiques d'une publication
+
+```http
+GET /api/social/posts/{post_id}/stats
+```

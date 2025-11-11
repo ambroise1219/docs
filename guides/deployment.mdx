@@ -1,0 +1,350 @@
+# Deployment
+
+Ce guide explique comment déployer l'API ONO Backend en production.
+
+## 🎯 Environnements de déploiement
+
+L'API ONO Backend peut être déployée dans différents environnements :
+
+- **Serveurs dédiés**
+- **Cloud (AWS, Google Cloud, Azure)**
+- **Kubernetes**
+- **Docker Swarm**
+
+## 📦 Prérequis de déploiement
+
+Avant de déployer, assurez-vous d'avoir :
+
+1. **Rust toolchain** installée sur le serveur cible
+2. **PostgreSQL** avec les bases de données créées
+3. **Redis** en cours d'exécution
+4. **Accès aux variables d'environnement de production**
+
+## 🚀 Déploiement manuel
+
+### 1. Compilation pour la production
+
+Compilez l'application avec les optimisations de production :
+
+```bash
+cargo build --release
+```
+
+Ou utilisez le profil ultra-optimisé :
+
+```bash
+cargo build --profile release-ultra
+```
+
+### 2. Configuration de l'environnement
+
+Créez un fichier `.env.production` avec les variables de production :
+
+```env
+# Configuration de base
+ENVIRONMENT=production
+JWT_SECRET=your-super-secret-production-jwt-key
+LOG_LEVEL=info
+
+# Bases de données
+ONO_MAIN_DATABASE_URL=postgresql://user:password@db-host:5432/ono_main
+ONO_FOOD_DATABASE_URL=postgresql://user:password@db-host:5432/ono_food
+ONO_DELIVERY_DATABASE_URL=postgresql://user:password@db-host:5432/ono_delivery
+ONO_MEDICAL_DATABASE_URL=postgresql://user:password@db-host:5432/ono_medical
+DATABASE_URL=postgresql://user:password@db-host:5432/ono_main
+
+# Redis
+REDIS_URL=redis://redis-host:6379
+
+# Configuration OTP/Wanotifier
+WANOTIFIER_API_KEY=your-production-wanotifier-api-key
+WANOTIFIER_API_URL=https://api.wanotifier.com/v1
+OTP_EXPIRATION_MINUTES=5
+OTP_MAX_ATTEMPTS=3
+
+# Configuration de performance
+MAX_CONNECTIONS=100
+```
+
+### 3. Déploiement des fichiers
+
+Copiez les fichiers nécessaires sur le serveur :
+
+```bash
+scp target/release/ono-backend user@server:/app/ono-backend/
+scp .env.production user@server:/app/ono-backend/.env
+```
+
+### 4. Démarrage du service
+
+Démarrez l'application :
+
+```bash
+cd /app/ono-backend
+./ono-backend
+```
+
+## 🐳 Déploiement avec Docker
+
+### 1. Construction de l'image Docker
+
+```dockerfile
+FROM rust:1.70 as builder
+
+WORKDIR /app
+COPY . .
+RUN cargo build --release
+
+FROM debian:bullseye-slim
+
+RUN apt-get update && apt-get install -y openssl ca-certificates \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /app/target/release/ono-backend /usr/local/bin/ono-backend
+COPY .env.production /app/.env
+
+WORKDIR /app
+CMD ["ono-backend"]
+```
+
+### 2. Construction et exécution
+
+```bash
+docker build -t ono-backend:latest .
+docker run -d -p 3000:3000 --env-file .env.production ono-backend:latest
+```
+
+## ☸️ Déploiement avec Kubernetes
+
+### 1. Fichier de déploiement (deployment.yaml)
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ono-backend
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: ono-backend
+  template:
+    metadata:
+      labels:
+        app: ono-backend
+    spec:
+      containers:
+      - name: ono-backend
+        image: ono-backend:latest
+        ports:
+        - containerPort: 3000
+        envFrom:
+        - secretRef:
+            name: ono-backend-secrets
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ono-backend-service
+spec:
+  selector:
+    app: ono-backend
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 3000
+  type: LoadBalancer
+```
+
+### 2. Secrets Kubernetes (secrets.yaml)
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ono-backend-secrets
+type: Opaque
+data:
+  JWT_SECRET: <base64-encoded-secret>
+  ONO_MAIN_DATABASE_URL: <base64-encoded-url>
+  ONO_FOOD_DATABASE_URL: <base64-encoded-url>
+  ONO_DELIVERY_DATABASE_URL: <base64-encoded-url>
+  ONO_MEDICAL_DATABASE_URL: <base64-encoded-url>
+  REDIS_URL: <base64-encoded-url>
+  WANOTIFIER_API_KEY: <base64-encoded-key>
+```
+
+### 3. Application des configurations
+
+```bash
+kubectl apply -f secrets.yaml
+kubectl apply -f deployment.yaml
+```
+
+## 🔄 CI/CD avec GitHub Actions
+
+### 1. Fichier de workflow (.github/workflows/deploy.yml)
+
+```yaml
+name: Deploy to Production
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v2
+    
+    - name: Setup Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        override: true
+        
+    - name: Build
+      run: cargo build --release
+      
+    - name: Run tests
+      run: cargo test
+      
+    - name: Deploy to server
+      uses: appleboy/scp-action@v0.1.0
+      with:
+        host: ${{ secrets.HOST }}
+        username: ${{ secrets.USERNAME }}
+        key: ${{ secrets.KEY }}
+        source: "target/release/ono-backend,.env.production"
+        target: "/app/ono-backend/"
+        
+    - name: Restart service
+      uses: appleboy/ssh-action@v0.1.2
+      with:
+        host: ${{ secrets.HOST }}
+        username: ${{ secrets.USERNAME }}
+        key: ${{ secrets.KEY }}
+        script: |
+          cd /app/ono-backend
+          systemctl restart ono-backend
+```
+
+## 📊 Monitoring et Logging
+
+### Configuration de tracing
+
+L'application utilise `tracing` pour le logging. Configurez votre backend de logging préféré :
+
+```env
+LOG_LEVEL=info
+TRACING_ENDPOINT=https://your-tracing-backend.com
+```
+
+### Health checks
+
+L'API expose des endpoints de santé :
+
+```http
+GET /health
+```
+
+Réponse :
+
+```json
+{
+  "status": "healthy",
+  "service": "ONO Backend API",
+  "version": "1.0.0",
+  "timestamp": "2023-01-01T00:00:00Z",
+  "environment": "production",
+  "features": {
+    "multi_database": true,
+    "real_time": true,
+    "geo_location": true,
+    "file_upload": true
+  }
+}
+```
+
+## 🔒 Sécurité en production
+
+### Configuration HTTPS
+
+Utilisez un reverse proxy comme Nginx pour gérer HTTPS :
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name api.ono.app;
+    
+    ssl_certificate /path/to/certificate.crt;
+    ssl_certificate_key /path/to/private.key;
+    
+    location / {
+        proxy_pass http://localhost:3000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+}
+```
+
+### Variables d'environnement sécurisées
+
+Stockez les secrets dans un gestionnaire de secrets comme HashiCorp Vault ou AWS Secrets Manager.
+
+### Mises à jour de sécurité
+
+Configurez des alertes pour les mises à jour de dépendances critiques :
+
+```bash
+cargo audit
+```
+
+## 📈 Performance en production
+
+### Profilage
+
+Activez le profilage pour identifier les goulets d'étranglement :
+
+```env
+ENABLE_PROFILING=true
+PROFILING_ENDPOINT=http://localhost:8080
+```
+
+### Configuration des connexions
+
+Ajustez les paramètres de pool de connexions selon votre charge :
+
+```env
+MAX_CONNECTIONS=100
+MIN_CONNECTIONS=10
+CONNECTION_TIMEOUT=30
+```
+
+## 🔄 Mises à jour et rollbacks
+
+### Procédure de mise à jour
+
+1. Compilez la nouvelle version
+2. Testez dans un environnement de staging
+3. Déployez sur un sous-ensemble de serveurs
+4. Surveillez les métriques
+5. Déployez sur tous les serveurs
+
+### Rollback en cas de problème
+
+```bash
+# Revenir à la version précédente
+systemctl stop ono-backend
+# Remplacer le binaire par l'ancienne version
+systemctl start ono-backend
+```

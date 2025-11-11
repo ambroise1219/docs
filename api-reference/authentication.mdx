@@ -1,0 +1,900 @@
+---
+title: "Authentication API"
+description: "Système d'authentification complet : OTP (Client), Email+Password+2FA (Admin), JWT, Refresh Tokens, Révocation"
+---
+
+# 🔐 Authentication
+
+ONO Backend utilise deux systèmes d'authentification distincts :
+- **Client (Mobile/Web)** : Authentification OTP par téléphone
+- **Admin (Dashboard)** : Email + Password + Double facteur (OTP)
+
+Les deux systèmes utilisent des **JWT** (JSON Web Tokens) avec **refresh tokens** pour une sécurité optimale.
+
+---
+
+## 📱 Client Authentication (OTP)
+
+### Flux d'authentification
+
+```mermaid
+sequenceDiagram
+    Client->>Backend: POST /auth/otp/generate {phone}
+    Backend->>Wanotifier: Envoyer SMS OTP
+    Wanotifier-->>Client: SMS avec code
+    Client->>Backend: POST /auth/otp/verify {phone, code}
+    Backend-->>Client: {user, access_token, refresh_token}
+```
+
+### 1. Générer un code OTP
+
+Envoie un code OTP par SMS au numéro de téléphone.
+
+<CodeGroup>
+```typescript Next.js / TanStack Query
+import { useMutation } from '@tanstack/react-query'
+import axios from 'axios'
+
+const useGenerateOtp = () => {
+  return useMutation({
+    mutationFn: async (phone: string) => {
+      const { data } = await axios.post('/api/auth/otp/generate', { phone })
+      return data
+    },
+  })
+}
+
+// Usage
+const { mutate: generateOtp, isPending } = useGenerateOtp()
+generateOtp('+2250789456123')
+```
+
+```typescript Expo (React Native)
+import { useMutation } from '@tanstack/react-query'
+import axios from 'axios'
+
+export const useGenerateOtp = () => {
+  return useMutation({
+    mutationFn: async (phone: string) => {
+      const { data } = await axios.post(
+        `${process.env.EXPO_PUBLIC_API_URL}/auth/otp/generate`,
+        { phone }
+      )
+      return data
+    },
+  })
+}
+```
+
+```bash cURL
+curl -X POST http://localhost:9000/api/auth/otp/generate \
+  -H "Content-Type: application/json" \
+  -d '{"phone": "+2250789456123"}'
+```
+</CodeGroup>
+
+**Request Body**
+
+| Champ  | Type   | Requis | Description                     |
+|--------|--------|--------|---------------------------------|
+| phone  | string | ✅     | Numéro au format international  |
+
+**Response 200**
+
+```json
+{
+  "success": true,
+  "message": "OTP envoyé avec succès",
+  "phone": "+2250789456123",
+  "is_new_user": false,
+  "expires_in": 300,
+  "otp_id": "550e8400-e29b-41d4-a716-446655440000"
+}
+```
+
+**Errors**
+
+| Code | Message                          | Description                    |
+|------|----------------------------------|--------------------------------|
+| RATE_LIMIT_EXCEEDED | Trop de tentatives     | Réessayer après `retry_after` |
+| INVALID_PHONE | Numéro invalide              | Format incorrect               |
+| OTP_SERVICE_UNAVAILABLE | Service indisponible | Wanotifier down                |
+
+---
+
+### 2. Vérifier le code OTP
+
+Vérifie le code OTP et authentifie l'utilisateur (ou le crée s'il n'existe pas).
+
+<CodeGroup>
+```typescript Next.js (Zod + React Hook Form)
+import { useForm } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
+import { z } from 'zod'
+import { useMutation } from '@tanstack/react-query'
+import axios from 'axios'
+
+const verifyOtpSchema = z.object({
+  phone: z.string().min(9),
+  otp_code: z.string().length(4),
+})
+
+type VerifyOtpInput = z.infer<typeof verifyOtpSchema>
+
+const useVerifyOtp = () => {
+  return useMutation({
+    mutationFn: async (data: VerifyOtpInput) => {
+      const response = await axios.post('/api/auth/otp/verify', data)
+      // Sauvegarder les tokens
+      localStorage.setItem('access_token', response.data.tokens.access_token)
+      localStorage.setItem('refresh_token', response.data.tokens.refresh_token)
+      return response.data
+    },
+  })
+}
+
+// Component
+function OtpForm() {
+  const { register, handleSubmit, formState: { errors } } = useForm<VerifyOtpInput>({
+    resolver: zodResolver(verifyOtpSchema),
+  })
+  
+  const { mutate: verify, isPending } = useVerifyOtp()
+  
+  return (
+    <form onSubmit={handleSubmit((data) => verify(data))}>
+      <input {...register('phone')} />
+      <input {...register('otp_code')} maxLength={4} />
+      <button disabled={isPending}>Vérifier</button>
+    </form>
+  )
+}
+```
+
+```typescript Expo (AsyncStorage)
+import AsyncStorage from '@react-native-async-storage/async-storage'
+import { useMutation } from '@tanstack/react-query'
+import axios from 'axios'
+
+const useVerifyOtp = () => {
+  return useMutation({
+    mutationFn: async ({ phone, otp_code }: { phone: string; otp_code: string }) => {
+      const { data } = await axios.post(
+        `${process.env.EXPO_PUBLIC_API_URL}/auth/otp/verify`,
+        { phone, otp_code }
+      )
+      
+      // Sauvegarder les tokens
+      await AsyncStorage.setItem('access_token', data.tokens.access_token)
+      await AsyncStorage.setItem('refresh_token', data.tokens.refresh_token)
+      await AsyncStorage.setItem('user', JSON.stringify(data.user))
+      
+      return data
+    },
+  })
+}
+```
+</CodeGroup>
+
+**Request Body**
+
+| Champ    | Type   | Requis | Description          |
+|----------|--------|--------|----------------------|
+| phone    | string | ✅     | Numéro de téléphone  |
+| otp_code | string | ✅     | Code OTP (4-6 chiffres) |
+
+**Response 200**
+
+```json
+{
+  "success": true,
+  "message": "Authentification réussie",
+  "user": {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "phone": "+2250789456123",
+    "email": "john.doe@example.com",
+    "first_name": "John",
+    "last_name": "Doe",
+    "full_name": "John Doe",
+    "profile_picture_url": "https://res.cloudinary.com/...",
+    "is_profile_completed": true,
+    "role": "CLIENT",
+    "driver_status": "OFFLINE",
+    "rating": 4.8,
+    "total_deliveries": 42,
+    "is_phone_verified": true,
+    "is_email_verified": false,
+    "created_at": "2025-01-15T10:30:00Z"
+  },
+  "tokens": {
+    "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "expires_in": 3600
+  }
+}
+```
+
+**Errors**
+
+| Code | Message | Description |
+|------|---------|-------------|
+| INVALID_OTP | Code invalide | OTP incorrect |
+| OTP_EXPIRED | Code expiré | Demander un nouveau code |
+| TOO_MANY_ATTEMPTS | Trop de tentatives | Compte bloqué temporairement |
+
+---
+
+## 👨‍💼 Admin Authentication (2FA)
+
+### Flux d'authentification admin
+
+```mermaid
+sequenceDiagram
+    Admin->>Backend: POST /auth/admin/login {email, password}
+    Backend->>DB: Vérifier credentials
+    Backend->>Wanotifier: Envoyer OTP
+    Backend-->>Admin: {mfa_token}
+    Admin->>Backend: POST /auth/admin/verify-mfa {mfa_token, otp_code}
+    Backend-->>Admin: {admin, access_token, refresh_token, permissions}
+```
+
+### 1. Connexion Admin (Étape 1)
+
+Authentification par email + password. Si les credentials sont valides, un OTP est envoyé.
+
+<CodeGroup>
+```typescript Next.js (Admin Dashboard)
+import { useForm } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
+import { z } from 'zod'
+import { useMutation } from '@tanstack/react-query'
+import axios from 'axios'
+
+const adminLoginSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(8),
+})
+
+type AdminLoginInput = z.infer<typeof adminLoginSchema>
+
+const useAdminLogin = () => {
+  return useMutation({
+    mutationFn: async (data: AdminLoginInput) => {
+      const response = await axios.post('/api/auth/admin/login', data)
+      // Sauvegarder le MFA token temporaire
+      sessionStorage.setItem('mfa_token', response.data.mfa_token)
+      sessionStorage.setItem('user_id', response.data.user_id)
+      return response.data
+    },
+  })
+}
+```
+
+```bash cURL
+curl -X POST http://localhost:9000/api/auth/admin/login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "admin@ono.app",
+    "password": "SecurePassword123!"
+  }'
+```
+</CodeGroup>
+
+**Request Body**
+
+| Champ    | Type   | Requis | Description          |
+|----------|--------|--------|----------------------|
+| email    | string | ✅     | Email admin          |
+| password | string | ✅     | Mot de passe (min 8) |
+
+**Response 200**
+
+```json
+{
+  "success": true,
+  "message": "OTP envoyé à votre téléphone",
+  "mfa_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "user_id": "550e8400-e29b-41d4-a716-446655440000",
+  "expires_in": 300,
+  "otp_sent": true
+}
+```
+
+**Errors**
+
+| Code | Message | Description |
+|------|---------|-------------|
+| INVALID_CREDENTIALS | Email ou mot de passe incorrect | Credentials invalides |
+
+---
+
+### 2. Vérification MFA (Étape 2)
+
+Vérifie le code OTP et retourne les tokens + permissions admin.
+
+<CodeGroup>
+```typescript Next.js
+const useVerifyAdminMfa = () => {
+  return useMutation({
+    mutationFn: async ({ mfa_token, otp_code }: { mfa_token: string; otp_code: string }) => {
+      const response = await axios.post('/api/auth/admin/verify-mfa', {
+        mfa_token,
+        otp_code,
+      })
+      
+      // Sauvegarder les tokens
+      localStorage.setItem('access_token', response.data.tokens.access_token)
+      localStorage.setItem('refresh_token', response.data.tokens.refresh_token)
+      localStorage.setItem('admin', JSON.stringify(response.data.admin))
+      localStorage.setItem('permissions', JSON.stringify(response.data.permissions))
+      
+      // Nettoyer le session storage
+      sessionStorage.removeItem('mfa_token')
+      sessionStorage.removeItem('user_id')
+      
+      return response.data
+    },
+  })
+}
+```
+
+```bash cURL
+curl -X POST http://localhost:9000/api/auth/admin/verify-mfa \
+  -H "Content-Type: application/json" \
+  -d '{
+    "mfa_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "otp_code": "1234"
+  }'
+```
+</CodeGroup>
+
+**Request Body**
+
+| Champ     | Type   | Requis | Description              |
+|-----------|--------|--------|--------------------------|
+| mfa_token | string | ✅     | Token MFA de l'étape 1   |
+| otp_code  | string | ✅     | Code OTP reçu par SMS    |
+
+**Response 200**
+
+```json
+{
+  "success": true,
+  "message": "Authentification admin réussie",
+  "admin": {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "email": "admin@ono.app",
+    "first_name": "Admin",
+    "last_name": "ONO",
+    "role": "super_admin",
+    "department": "all",
+    "last_login_at": "2025-11-06T23:00:00Z",
+    "created_at": "2024-01-01T00:00:00Z"
+  },
+  "tokens": {
+    "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "expires_in": 3600
+  },
+  "permissions": [
+    "*"
+  ]
+}
+```
+
+**Admin Roles & Permissions**
+
+| Role | Department | Permissions |
+|------|------------|-------------|
+| `super_admin` | `all` | `["*"]` (tous les accès) |
+| `gestionnaire` | `food` | `["food.read", "food.write", "restaurants.manage", ...]` |
+| `gestionnaire` | `delivery` | `["delivery.read", "delivery.write", "drivers.manage", ...]` |
+| `gestionnaire` | `pharmacy` | `["pharmacy.read", "pharmacy.write", "medicines.manage", ...]` |
+
+**Errors**
+
+| Code | Message | Description |
+|------|---------|-------------|
+| INVALID_MFA_TOKEN | Token MFA invalide | Token expiré ou invalide |
+| INVALID_OTP | Code OTP invalide | Code incorrect |
+| MFA_SESSION_EXPIRED | Session expirée | Recommencer l'authentification |
+
+---
+
+## 🔄 Token Management
+
+### Refresh Access Token
+
+Les access tokens expirent après **1 heure**. Utilisez le refresh token pour en obtenir un nouveau.
+
+<CodeGroup>
+```typescript Next.js (Axios Interceptor)
+import axios from 'axios'
+
+// Configuration axios avec auto-refresh
+const api = axios.create({
+  baseURL: process.env.NEXT_PUBLIC_API_URL,
+})
+
+// Intercepteur pour ajouter le token
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem('access_token')
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`
+  }
+  return config
+})
+
+// Intercepteur pour refresh automatique
+api.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    const originalRequest = error.config
+    
+    if (error.response?.status === 401 && !originalRequest._retry) {
+      originalRequest._retry = true
+      
+      const refreshToken = localStorage.getItem('refresh_token')
+      if (!refreshToken) {
+        // Rediriger vers login
+        window.location.href = '/login'
+        return Promise.reject(error)
+      }
+      
+      try {
+        const { data } = await axios.post('/api/auth/refresh', {
+          refresh_token: refreshToken,
+        })
+        
+        localStorage.setItem('access_token', data.access_token)
+        originalRequest.headers.Authorization = `Bearer ${data.access_token}`
+        
+        return api(originalRequest)
+      } catch (refreshError) {
+        // Refresh failed, logout
+        localStorage.clear()
+        window.location.href = '/login'
+        return Promise.reject(refreshError)
+      }
+    }
+    
+    return Promise.reject(error)
+  }
+)
+
+export default api
+```
+
+```typescript Expo
+import axios from 'axios'
+import AsyncStorage from '@react-native-async-storage/async-storage'
+
+const api = axios.create({
+  baseURL: process.env.EXPO_PUBLIC_API_URL,
+})
+
+api.interceptors.request.use(async (config) => {
+  const token = await AsyncStorage.getItem('access_token')
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`
+  }
+  return config
+})
+
+api.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    const originalRequest = error.config
+    
+    if (error.response?.status === 401 && !originalRequest._retry) {
+      originalRequest._retry = true
+      
+      const refreshToken = await AsyncStorage.getItem('refresh_token')
+      if (!refreshToken) {
+        // Navigate to login
+        return Promise.reject(error)
+      }
+      
+      try {
+        const { data } = await axios.post(
+          `${process.env.EXPO_PUBLIC_API_URL}/auth/refresh`,
+          { refresh_token: refreshToken }
+        )
+        
+        await AsyncStorage.setItem('access_token', data.access_token)
+        originalRequest.headers.Authorization = `Bearer ${data.access_token}`
+        
+        return api(originalRequest)
+      } catch (refreshError) {
+        await AsyncStorage.clear()
+        return Promise.reject(refreshError)
+      }
+    }
+    
+    return Promise.reject(error)
+  }
+)
+
+export default api
+```
+
+```bash cURL
+curl -X POST http://localhost:9000/api/auth/refresh \
+  -H "Content-Type: application/json" \
+  -d '{
+    "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+  }'
+```
+</CodeGroup>
+
+**Request Body**
+
+| Champ          | Type   | Requis | Description      |
+|----------------|--------|--------|------------------|
+| refresh_token  | string | ✅     | Refresh token    |
+
+**Response 200**
+
+```json
+{
+  "success": true,
+  "message": "Token rafraîchi avec succès",
+  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "expires_in": 3600
+}
+```
+
+**Errors**
+
+| Code | Message | Description |
+|------|---------|-------------|
+| INVALID_REFRESH_TOKEN | Token invalide | Token corrompu ou révoqué |
+| SESSION_EXPIRED | Session expirée | Reconnexion requise |
+
+---
+
+### Logout (Révocation de token)
+
+Déconnecte l'utilisateur de l'appareil actuel en révoquant le refresh token.
+
+<CodeGroup>
+```typescript Next.js
+import { useMutation } from '@tanstack/react-query'
+import axios from 'axios'
+import { useRouter } from 'next/navigation'
+
+const useLogout = () => {
+  const router = useRouter()
+  
+  return useMutation({
+    mutationFn: async () => {
+      const refreshToken = localStorage.getItem('refresh_token')
+      const userId = localStorage.getItem('user_id')
+      
+      await axios.post('/api/auth/logout', {
+        user_id: userId,
+        refresh_token: refreshToken,
+      })
+    },
+    onSettled: () => {
+      // Nettoyer le storage et rediriger
+      localStorage.clear()
+      router.push('/login')
+    },
+  })
+}
+```
+
+```typescript Expo
+import { useMutation } from '@tanstack/react-query'
+import AsyncStorage from '@react-native-async-storage/async-storage'
+import axios from 'axios'
+
+const useLogout = () => {
+  return useMutation({
+    mutationFn: async () => {
+      const refreshToken = await AsyncStorage.getItem('refresh_token')
+      const user = await AsyncStorage.getItem('user')
+      const userId = JSON.parse(user || '{}').id
+      
+      await axios.post(
+        `${process.env.EXPO_PUBLIC_API_URL}/auth/logout`,
+        {
+          user_id: userId,
+          refresh_token: refreshToken,
+        }
+      )
+    },
+    onSettled: async () => {
+      await AsyncStorage.clear()
+      // Navigate to login screen
+    },
+  })
+}
+```
+</CodeGroup>
+
+**Request Body**
+
+| Champ          | Type   | Requis | Description      |
+|----------------|--------|--------|------------------|
+| user_id        | string | ✅     | UUID utilisateur |
+| refresh_token  | string | ✅     | Refresh token    |
+
+**Response 200**
+
+```json
+{
+  "success": true,
+  "message": "Déconnexion réussie"
+}
+```
+
+---
+
+### Logout All Devices
+
+Déconnecte l'utilisateur de **tous ses appareils** en révoquant tous les refresh tokens.
+
+<CodeGroup>
+```typescript Next.js
+const useLogoutAll = () => {
+  return useMutation({
+    mutationFn: async () => {
+      const userId = localStorage.getItem('user_id')
+      await axios.post('/api/auth/logout-all', { user_id: userId })
+    },
+    onSuccess: () => {
+      localStorage.clear()
+      router.push('/login')
+    },
+  })
+}
+```
+</CodeGroup>
+
+**Request Body**
+
+| Champ    | Type   | Requis | Description      |
+|----------|--------|--------|------------------|
+| user_id  | string | ✅     | UUID utilisateur |
+
+**Response 200**
+
+```json
+{
+  "success": true,
+  "message": "Déconnexion de tous les appareils réussie"
+}
+```
+
+---
+
+## 🔒 Protected Routes
+
+Pour accéder aux routes protégées, incluez l'access token dans l'en-tête `Authorization`.
+
+<CodeGroup>
+```typescript Next.js (React Query)
+import { useQuery } from '@tanstack/react-query'
+import axios from 'axios'
+
+const api = axios.create({
+  baseURL: process.env.NEXT_PUBLIC_API_URL,
+})
+
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem('access_token')
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`
+  }
+  return config
+})
+
+const useProfile = () => {
+  return useQuery({
+    queryKey: ['profile'],
+    queryFn: async () => {
+      const { data } = await api.get('/users/profile')
+      return data
+    },
+  })
+}
+```
+
+```bash cURL
+curl -X GET http://localhost:9000/api/users/profile \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+</CodeGroup>
+
+---
+
+## 📊 Auth Logs (Admin Only)
+
+Consultez les logs d'authentification pour surveiller les tentatives de connexion.
+
+### GET /api/auth/logs
+
+Liste tous les logs d'authentification.
+
+**Query Parameters**
+
+| Paramètre | Type   | Description            |
+|-----------|--------|------------------------|
+| limit     | number | Nombre de résultats    |
+| offset    | number | Pagination             |
+
+### GET /api/auth/logs/stats
+
+Statistiques d'authentification.
+
+### GET /api/auth/logs/failed
+
+Liste les tentatives échouées.
+
+### GET /api/auth/logs/user/:user_id
+
+Historique d'auth pour un utilisateur.
+
+---
+
+## 🛠️ Gestion des erreurs
+
+### Pattern recommandé
+
+<CodeGroup>
+```typescript Next.js (Error Handling)
+import { useMutation } from '@tanstack/react-query'
+import axios, { AxiosError } from 'axios'
+import { toast } from 'sonner'
+
+interface ErrorResponse {
+  success: false
+  message: string
+  error_code: string
+}
+
+const useVerifyOtp = () => {
+  return useMutation({
+    mutationFn: async (data: { phone: string; otp_code: string }) => {
+      const response = await axios.post('/api/auth/otp/verify', data)
+      return response.data
+    },
+    onError: (error: AxiosError<ErrorResponse>) => {
+      const errorCode = error.response?.data?.error_code
+      const message = error.response?.data?.message
+      
+      switch (errorCode) {
+        case 'INVALID_OTP':
+          toast.error('Code invalide. Veuillez réessayer.')
+          break
+        case 'OTP_EXPIRED':
+          toast.error('Code expiré. Demandez un nouveau code.')
+          break
+        case 'TOO_MANY_ATTEMPTS':
+          toast.error('Trop de tentatives. Compte temporairement bloqué.')
+          break
+        default:
+          toast.error(message || 'Une erreur est survenue')
+      }
+    },
+  })
+}
+```
+</CodeGroup>
+
+---
+
+## 🔐 Security Best Practices
+
+### Stockage des tokens
+
+| Plateforme | Access Token | Refresh Token | Recommandation |
+|------------|--------------|---------------|----------------|
+| **Next.js (Web)** | `localStorage` | `localStorage` | Utiliser `httpOnly cookies` en production |
+| **Expo (Mobile)** | `AsyncStorage` (encrypted) | `SecureStore` | Toujours chiffrer |
+
+<CodeGroup>
+```typescript Expo (Secure Storage)
+import * as SecureStore from 'expo-secure-store'
+
+// Sauvegarder de manière sécurisée
+await SecureStore.setItemAsync('refresh_token', refreshToken)
+await SecureStore.setItemAsync('access_token', accessToken)
+
+// Récupérer
+const refreshToken = await SecureStore.getItemAsync('refresh_token')
+```
+</CodeGroup>
+
+### Token Expiration
+
+| Token Type | Durée de vie | Révocable |
+|------------|--------------|-----------|
+| Access Token | 1 heure | ❌ |
+| Refresh Token | 30 jours | ✅ |
+| MFA Token (Admin) | 5 minutes | ❌ |
+
+### Rate Limiting
+
+| Endpoint | Limite | Fenêtre |
+|----------|--------|---------|
+| `/auth/otp/generate` | 3 requêtes | 5 minutes |
+| `/auth/otp/verify` | 5 tentatives | 10 minutes |
+| `/auth/admin/login` | 5 requêtes | 15 minutes |
+
+---
+
+## 🧪 Testing
+
+<CodeGroup>
+```typescript Vitest (Unit Test)
+import { describe, it, expect } from 'vitest'
+import { z } from 'zod'
+
+const verifyOtpSchema = z.object({
+  phone: z.string().min(9),
+  otp_code: z.string().length(4),
+})
+
+describe('Auth Validation', () => {
+  it('should validate OTP request', () => {
+    const valid = verifyOtpSchema.safeParse({
+      phone: '+2250789456123',
+      otp_code: '1234',
+    })
+    expect(valid.success).toBe(true)
+  })
+  
+  it('should reject invalid OTP code', () => {
+    const invalid = verifyOtpSchema.safeParse({
+      phone: '+2250789456123',
+      otp_code: '12345', // Trop long
+    })
+    expect(invalid.success).toBe(false)
+  })
+})
+```
+</CodeGroup>
+
+---
+
+## 📡 WebSocket Authentication
+
+Pour les connexions WebSocket temps réel (notifications, chat, tracking), utilisez l'access token :
+
+```typescript
+import io from 'socket.io-client'
+
+const socket = io(process.env.NEXT_PUBLIC_WS_URL, {
+  auth: {
+    token: localStorage.getItem('access_token'),
+  },
+})
+
+socket.on('connect', () => {
+  console.log('✅ Connected to WebSocket')
+})
+
+socket.on('disconnect', () => {
+  console.log('❌ Disconnected')
+})
+```
+
+---
+
+## 🎯 Endpoints Summary
+
+| Endpoint | Method | Auth | Description |
+|----------|--------|------|-------------|
+| `/auth/otp/generate` | POST | ❌ | Générer OTP |
+| `/auth/otp/verify` | POST | ❌ | Vérifier OTP |
+| `/auth/admin/login` | POST | ❌ | Login admin (étape 1) |
+| `/auth/admin/verify-mfa` | POST | ❌ | Vérifier MFA admin (étape 2) |
+| `/auth/refresh` | POST | ❌ | Rafraîchir token |
+| `/auth/logout` | POST | ✅ | Déconnexion |
+| `/auth/logout-all` | POST | ✅ | Déconnexion tous appareils |
+| `/auth/logs` | GET | ✅ Admin | Logs d'authentification |
+| `/auth/logs/stats` | GET | ✅ Admin | Statistiques |
+| `/auth/health` | GET | ❌ | Health check |

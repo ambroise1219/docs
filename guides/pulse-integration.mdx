@@ -1,0 +1,559 @@
+---
+title: 'Intégration Pulse'
+description: 'Guide complet pour intégrer les notifications temps réel'
+icon: 'rocket'
+---
+
+## Introduction
+
+Ce guide vous montre comment intégrer Pulse dans vos applications pour recevoir des notifications en temps réel.
+
+## Choix du protocole
+
+<CardGroup cols={3}>
+  <Card title="SSE" icon="wave-pulse">
+    **Web (React, Vue, Angular)**
+    
+    Simple, unidirectionnel
+    
+    Reconnexion automatique
+  </Card>
+  <Card title="WebSocket" icon="plug">
+    **Web + Chat**
+    
+    Bidirectionnel
+    
+    Interactions temps réel
+  </Card>
+  <Card title="gRPC" icon="bolt">
+    **Mobile (iOS, Android)**
+    
+    Haute performance
+    
+    Typage fort
+  </Card>
+</CardGroup>
+
+## Intégration Web (SSE)
+
+### Installation
+
+Aucune dépendance nécessaire ! SSE est natif dans tous les navigateurs modernes.
+
+### Connexion basique
+
+```typescript
+// 1. Obtenir un token
+const response = await fetch('https://api.ono.ci/api/auth/otp/verify', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    phone: '+2250707070707',
+    otp_code: '1234'
+  })
+});
+
+const { tokens } = await response.json();
+const token = tokens.access_token;
+
+// 2. Se connecter à Pulse
+const eventSource = new EventSource(
+  `https://api.ono.ci/pulse/sse/notifications?token=${token}&topics=food.orders`
+);
+
+// 3. Écouter les événements
+eventSource.addEventListener('food.order.created', (event) => {
+  const data = JSON.parse(event.data);
+  console.log('Nouvelle commande:', data);
+  showNotification(`Commande ${data.order_number} créée`);
+});
+
+eventSource.addEventListener('food.order.status_changed', (event) => {
+  const data = JSON.parse(event.data);
+  console.log('Statut changé:', data);
+  updateOrderStatus(data.order_id, data.new_status);
+});
+
+// 4. Gérer les erreurs
+eventSource.onerror = (error) => {
+  console.error('Erreur SSE:', error);
+  // La reconnexion est automatique
+};
+```
+
+### Hook React
+
+```typescript
+import { useEffect, useState } from 'react';
+
+interface Order {
+  id: string;
+  order_number: string;
+  status: string;
+  total_amount: number;
+}
+
+export function usePulseNotifications(token: string) {
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [connected, setConnected] = useState(false);
+
+  useEffect(() => {
+    if (!token) return;
+
+    const eventSource = new EventSource(
+      `https://api.ono.ci/pulse/sse/notifications?token=${token}&topics=food.orders`
+    );
+
+    eventSource.onopen = () => {
+      console.log('✅ Connecté à Pulse');
+      setConnected(true);
+    };
+
+    eventSource.addEventListener('food.order.created', (e) => {
+      const data = JSON.parse(e.data);
+      setOrders(prev => [...prev, data]);
+    });
+
+    eventSource.addEventListener('food.order.status_changed', (e) => {
+      const data = JSON.parse(e.data);
+      setOrders(prev => prev.map(order => 
+        order.id === data.order_id 
+          ? { ...order, status: data.new_status }
+          : order
+      ));
+    });
+
+    eventSource.onerror = () => {
+      setConnected(false);
+    };
+
+    return () => {
+      eventSource.close();
+      setConnected(false);
+    };
+  }, [token]);
+
+  return { orders, connected };
+}
+
+// Utilisation
+function OrdersPage() {
+  const { token } = useAuth();
+  const { orders, connected } = usePulseNotifications(token);
+
+  return (
+    <div>
+      <div>Status: {connected ? '🟢 Connecté' : '🔴 Déconnecté'}</div>
+      {orders.map(order => (
+        <OrderCard key={order.id} order={order} />
+      ))}
+    </div>
+  );
+}
+```
+
+### Composable Vue 3
+
+```typescript
+import { ref, onMounted, onUnmounted } from 'vue';
+
+export function usePulse(token: string, topics: string[]) {
+  const connected = ref(false);
+  const events = ref([]);
+  let eventSource: EventSource | null = null;
+
+  const connect = () => {
+    const topicsParam = topics.join(',');
+    eventSource = new EventSource(
+      `https://api.ono.ci/pulse/sse/notifications?token=${token}&topics=${topicsParam}`
+    );
+
+    eventSource.onopen = () => {
+      connected.value = true;
+    };
+
+    eventSource.addEventListener('food.order.created', (e) => {
+      events.value.push(JSON.parse(e.data));
+    });
+
+    eventSource.onerror = () => {
+      connected.value = false;
+    };
+  };
+
+  const disconnect = () => {
+    if (eventSource) {
+      eventSource.close();
+      eventSource = null;
+      connected.value = false;
+    }
+  };
+
+  onMounted(connect);
+  onUnmounted(disconnect);
+
+  return { connected, events, disconnect };
+}
+```
+
+## Intégration Mobile (gRPC)
+
+### Android (Kotlin)
+
+#### 1. Ajouter les dépendances
+
+```kotlin
+// build.gradle.kts
+dependencies {
+    implementation("io.grpc:grpc-kotlin-stub:1.4.0")
+    implementation("io.grpc:grpc-okhttp:1.59.0")
+    implementation("com.google.protobuf:protobuf-kotlin:3.24.0")
+}
+```
+
+#### 2. Créer le service Pulse
+
+```kotlin
+class PulseService(private val context: Context) {
+    private lateinit var channel: ManagedChannel
+    private lateinit var stub: PulseServiceGrpcKt.PulseServiceCoroutineStub
+
+    fun connect() {
+        channel = ManagedChannelBuilder
+            .forAddress("api.ono.ci", 50052)
+            .useTransportSecurity()
+            .build()
+
+        stub = PulseServiceGrpcKt.PulseServiceCoroutineStub(channel)
+    }
+
+    suspend fun subscribeNotifications(
+        userId: String,
+        token: String,
+        topics: List<String>
+    ): Flow<Notification> {
+        val request = subscribeRequest {
+            this.userId = userId
+            this.token = token
+            this.topics.addAll(topics)
+        }
+
+        return stub.subscribeNotifications(request)
+    }
+
+    fun disconnect() {
+        if (::channel.isInitialized) {
+            channel.shutdown()
+        }
+    }
+}
+```
+
+#### 3. Utiliser dans un ViewModel
+
+```kotlin
+class OrdersViewModel(
+    private val pulseService: PulseService
+) : ViewModel() {
+    
+    private val _orders = MutableStateFlow<List<Order>>(emptyList())
+    val orders: StateFlow<List<Order>> = _orders.asStateFlow()
+
+    private val _connected = MutableStateFlow(false)
+    val connected: StateFlow<Boolean> = _connected.asStateFlow()
+
+    init {
+        connectToPulse()
+    }
+
+    private fun connectToPulse() {
+        viewModelScope.launch {
+            try {
+                pulseService.connect()
+                
+                pulseService.subscribeNotifications(
+                    userId = getUserId(),
+                    token = getToken(),
+                    topics = listOf("food.orders")
+                ).collect { notification ->
+                    _connected.value = true
+                    handleNotification(notification)
+                }
+            } catch (e: Exception) {
+                Log.e("Pulse", "Error: ${e.message}")
+                _connected.value = false
+            }
+        }
+    }
+
+    private fun handleNotification(notification: Notification) {
+        when (notification.type) {
+            NotificationType.DELIVERY_UPDATE -> {
+                // Mettre à jour la commande
+                val data = notification.dataMap
+                updateOrderStatus(
+                    orderId = data["order_id"] ?: "",
+                    status = data["new_status"] ?: ""
+                )
+            }
+            else -> Log.d("Pulse", "Notification: ${notification.title}")
+        }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        pulseService.disconnect()
+    }
+}
+```
+
+### iOS (Swift)
+
+#### 1. Ajouter les dépendances
+
+```swift
+// Package.swift
+dependencies: [
+    .package(url: "https://github.com/grpc/grpc-swift.git", from: "1.20.0")
+]
+```
+
+#### 2. Créer le service Pulse
+
+```swift
+import GRPC
+import NIO
+
+class PulseService {
+    private var channel: ClientConnection?
+    private var client: Pulse_PulseServiceNIOClient?
+    
+    func connect() {
+        let group = PlatformSupport.makeEventLoopGroup(loopCount: 1)
+        
+        channel = ClientConnection
+            .usingPlatformAppropriateTLS(for: group)
+            .connect(host: "api.ono.ci", port: 50052)
+        
+        client = Pulse_PulseServiceNIOClient(channel: channel!)
+    }
+    
+    func subscribeNotifications(
+        userId: String,
+        token: String,
+        topics: [String]
+    ) -> EventLoopFuture<GRPCStatus> {
+        var request = Pulse_SubscribeRequest()
+        request.userID = userId
+        request.token = token
+        request.topics = topics
+        
+        let call = client!.subscribeNotifications(request)
+        
+        call.response.whenSuccess { notification in
+            self.handleNotification(notification)
+        }
+        
+        return call.status
+    }
+    
+    private func handleNotification(_ notification: Pulse_Notification) {
+        switch notification.type {
+        case .deliveryUpdate:
+            NotificationCenter.default.post(
+                name: .orderStatusChanged,
+                object: notification.data
+            )
+        default:
+            print("Notification: \(notification.title)")
+        }
+    }
+    
+    func disconnect() {
+        try? channel?.close().wait()
+    }
+}
+```
+
+## Intégration Flutter
+
+```dart
+import 'package:grpc/grpc.dart';
+import 'package:ono_app/generated/pulse.pbgrpc.dart';
+
+class PulseService {
+  late ClientChannel _channel;
+  late PulseServiceClient _stub;
+
+  Future<void> connect() async {
+    _channel = ClientChannel(
+      'api.ono.ci',
+      port: 50052,
+      options: const ChannelOptions(
+        credentials: ChannelCredentials.secure(),
+      ),
+    );
+    _stub = PulseServiceClient(_channel);
+  }
+
+  Stream<Notification> subscribeNotifications({
+    required String userId,
+    required String token,
+    required List<String> topics,
+  }) {
+    final request = SubscribeRequest()
+      ..userId = userId
+      ..token = token
+      ..topics.addAll(topics);
+
+    return _stub.subscribeNotifications(request);
+  }
+
+  Future<void> disconnect() async {
+    await _channel.shutdown();
+  }
+}
+
+// Utilisation avec Provider
+class OrdersProvider extends ChangeNotifier {
+  final PulseService _pulseService;
+  List<Order> _orders = [];
+  bool _connected = false;
+
+  OrdersProvider(this._pulseService) {
+    _connectToPulse();
+  }
+
+  Future<void> _connectToPulse() async {
+    await _pulseService.connect();
+    
+    _pulseService.subscribeNotifications(
+      userId: getUserId(),
+      token: getToken(),
+      topics: ['food.orders'],
+    ).listen(
+      (notification) {
+        _connected = true;
+        _handleNotification(notification);
+        notifyListeners();
+      },
+      onError: (error) {
+        _connected = false;
+        notifyListeners();
+      },
+    );
+  }
+
+  void _handleNotification(Notification notification) {
+    // Traiter la notification
+  }
+}
+```
+
+## Best Practices
+
+### Gestion de la reconnexion
+
+```typescript
+class PulseClient {
+  private eventSource: EventSource | null = null;
+  private reconnectAttempts = 0;
+  private maxReconnectAttempts = 5;
+
+  connect(token: string, topics: string[]) {
+    const url = `https://api.ono.ci/pulse/sse/notifications?token=${token}&topics=${topics.join(',')}`;
+    
+    this.eventSource = new EventSource(url);
+
+    this.eventSource.onerror = () => {
+      if (this.reconnectAttempts < this.maxReconnectAttempts) {
+        this.reconnectAttempts++;
+        const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30000);
+        
+        console.log(`Reconnexion dans ${delay}ms...`);
+        setTimeout(() => this.connect(token, topics), delay);
+      }
+    };
+
+    this.eventSource.onopen = () => {
+      this.reconnectAttempts = 0;
+      console.log('✅ Connecté à Pulse');
+    };
+  }
+}
+```
+
+### Gestion du token expiré
+
+```typescript
+eventSource.addEventListener('error', async (event) => {
+  if (event.status === 401) {
+    // Token expiré, rafraîchir
+    const newToken = await refreshToken();
+    eventSource.close();
+    connectToPulse(newToken);
+  }
+});
+```
+
+### Performance mobile
+
+```kotlin
+// Utiliser un interceptor pour ajouter le token
+class AuthInterceptor(private val tokenProvider: () -> String) : ClientInterceptor {
+    override fun <ReqT, RespT> interceptCall(
+        method: MethodDescriptor<ReqT, RespT>,
+        callOptions: CallOptions,
+        next: Channel
+    ): ClientCall<ReqT, RespT> {
+        return object : ForwardingClientCall.SimpleForwardingClientCall<ReqT, RespT>(
+            next.newCall(method, callOptions)
+        ) {
+            override fun start(responseListener: Listener<RespT>, headers: Metadata) {
+                headers.put(
+                    Metadata.Key.of("authorization", Metadata.ASCII_STRING_MARSHALLER),
+                    "Bearer ${tokenProvider()}"
+                )
+                super.start(responseListener, headers)
+            }
+        }
+    }
+}
+```
+
+## Troubleshooting
+
+### SSE ne se connecte pas
+
+```bash
+# Tester avec curl
+curl -N "http://localhost:9000/pulse/sse/notifications?token=YOUR_TOKEN&topics=food.orders"
+```
+
+### gRPC timeout
+
+```kotlin
+// Augmenter le timeout
+val channel = ManagedChannelBuilder
+    .forAddress("api.ono.ci", 50052)
+    .keepAliveTime(30, TimeUnit.SECONDS)
+    .keepAliveTimeout(10, TimeUnit.SECONDS)
+    .build()
+```
+
+### Événements manqués
+
+- Vérifier les topics souscrits
+- Vérifier les permissions utilisateur
+- Consulter les logs serveur
+
+## Prochaines étapes
+
+<CardGroup cols={2}>
+  <Card title="API Reference" icon="book" href="/api-reference/pulse">
+    Documentation complète de l'API Pulse
+  </Card>
+  <Card title="Testing" icon="flask" href="/guides/testing">
+    Tester les notifications en local
+  </Card>
+</CardGroup>

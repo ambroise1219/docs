@@ -1,0 +1,68 @@
+# Getting Started
+
+Pour commencer à utiliser l'API ONO Backend, suivez ces étapes simples.
+
+## 🛠️ Prérequis
+
+Avant de commencer, assurez-vous d'avoir installé les outils suivants :
+
+- Rust (édition 2021 ou supérieure)
+- PostgreSQL (version 13 ou supérieure)
+- Redis
+- Node.js (pour les outils de développement)
+
+## 📦 Installation
+
+1. Clonez le dépôt :
+
+```bash
+git clone https://github.com/ono/ono-backend.git
+cd ono-backend
+```
+
+2. Installez les dépendances :
+
+```bash
+cargo build
+```
+
+3. Configurez les variables d'environnement :
+
+```bash
+cp .env.example .env
+# Éditez le fichier .env avec vos configurations
+```
+
+4. Exécutez les migrations de base de données :
+
+```bash
+# Commandes pour exécuter les migrations
+```
+
+5. Démarrez le serveur :
+
+```bash
+cargo run
+```
+
+## 🌐 Accès aux services
+
+Une fois le serveur démarré, vous pouvez accéder aux services suivants :
+
+- **API principale** : http://localhost:3000
+- **Documentation Swagger** : http://localhost:3000/swagger-ui
+- **Serveur gRPC Pulse** : http://localhost:50051
+
+## 🧪 Tests
+
+Pour exécuter les tests :
+
+```bash
+cargo test
+```
+
+Pour exécuter les tests d'intégration spécifiques :
+
+```bash
+./tests/test_all_food_endpoints.sh
+```

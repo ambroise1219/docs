@@ -1,0 +1,510 @@
+# Pricing & Wallet System
+
+<Note>
+  **Production Ready** - Système complet de tarification et gestion de wallet pour agents
+</Note>
+
+Le système de Pricing & Wallet offre un contrôle total sur la tarification des livraisons et la gestion des paiements des agents livreurs.
+
+## 🎯 Vue d'ensemble
+
+Le système comprend deux composants principaux :
+
+1. **Pricing Configuration** - Configuration flexible des frais de livraison avec 2 modes (Standard & Flat Rate Zone)
+2. **Agent Wallet** - Gestion des crédits et paiements des agents avec déduction automatique
+
+## 💰 Système de Pricing
+
+### Modes de Tarification
+
+Le système supporte **2 modes exclusifs** configurables via le dashboard Super Admin :
+
+#### Mode STANDARD (par défaut)
+
+**Calcul** : Base + (Distance × Prix/km) + Multiplicateurs
+
+**Formule** :
+```
+Prix = base_fee + (distance_km × price_per_km) × (1 + multiplicateurs)
+```
+
+**Exemple** (10 km) :
+- Base: 500 FCFA
+- Distance: 10 km × 100 FCFA/km = 1000 FCFA
+- Total: 1500 FCFA
+- Commission agent (15%): 225 FCFA
+
+#### Mode FLAT_RATE_ZONE (nouveau)
+
+**Calcul** : Prix fixe par zone si distance ≤ max
+
+**Logique** :
+1. Détecter zone pickup (lat/lng)
+2. Détecter zone delivery (lat/lng)
+3. Si **même zone** ET **distance ≤ flat_rate_max_distance_km** :
+   - Prix = **flat_rate_price** (ex: 800 FCFA)
+   - **Ignorer TOUS les multiplicateurs**
+4. Sinon : Calcul STANDARD
+
+**Exemple** (Cocody, 8 km) :
+- Zone: Cocody
+- Distance: 8 km ≤ 10 km max
+- Prix: **800 FCFA** (fixe, peu importe pluie/embouteillage)
+
+**Exemple** (Cocody, 12 km) :
+- Zone: Cocody
+- Distance: 12 km > 10 km max
+- Prix: Calcul STANDARD (base + distance)
+
+### Configuration Globale
+
+#### Récupérer la configuration (Public)
+
+```bash
+GET /api/delivery/pricing/config
+```
+
+**Réponse** :
+```json
+{
+  "success": true,
+  "data": {
+    "id": "uuid",
+    "pricing_mode": "STANDARD",
+    "fees_enabled": true,
+    "agent_commission_enabled": true,
+    "agent_commission_rate": "15",
+    "platform_commission_rate": "15",
+    "base_fee": "500",
+    "price_per_km": "100",
+    "rush_hour_multiplier": "0",
+    "weather_multiplier": "0",
+    "demand_multiplier": "0",
+    "fragile_multiplier": "0",
+    "urgent_multiplier": "0",
+    "min_delivery_fee": "500",
+    "max_delivery_fee": null,
+    "free_delivery_distance_km": "0",
+    "max_delivery_distance_km": "50",
+    "zone_pricing_enabled": false,
+    "updated_at": "2025-11-05T18:00:00Z"
+  }
+}
+```
+
+#### Modifier la configuration (Super Admin)
+
+```bash
+PUT /api/delivery/pricing/config
+Authorization: Bearer <super_admin_token>
+Content-Type: application/json
+
+{
+  "pricing_mode": "FLAT_RATE_ZONE",
+  "fees_enabled": true,
+  "agent_commission_enabled": true,
+  "agent_commission_rate": 15.0,
+  "base_fee": 500.0,
+  "price_per_km": 100.0,
+  "rush_hour_multiplier": 0.2,
+  "weather_multiplier": 0.15,
+  "demand_multiplier": 0.1,
+  "fragile_multiplier": 0.1,
+  "urgent_multiplier": 0.25,
+  "reason": "Activation mode flat rate pour Abidjan"
+}
+```
+
+### Paramètres Configurables
+
+| Paramètre | Type | Description | Défaut |
+|-----------|------|-------------|--------|
+| `pricing_mode` | Enum | STANDARD ou FLAT_RATE_ZONE | STANDARD |
+| `fees_enabled` | Boolean | Activer/Désactiver les frais (mode gratuit) | true |
+| `agent_commission_enabled` | Boolean | Activer/Désactiver commission agent | true |
+| `agent_commission_rate` | Float | Pourcentage commission agent (%) | 15.0 |
+| `platform_commission_rate` | Float | Pourcentage commission plateforme (%) | 15.0 |
+| `base_fee` | Float | Frais de base (FCFA) | 500.0 |
+| `price_per_km` | Float | Prix par kilomètre (FCFA) | 100.0 |
+| `rush_hour_multiplier` | Float | Multiplicateur heures de pointe | 0.0 |
+| `weather_multiplier` | Float | Multiplicateur météo | 0.0 |
+| `demand_multiplier` | Float | Multiplicateur forte demande | 0.0 |
+| `fragile_multiplier` | Float | Multiplicateur colis fragile | 0.0 |
+| `urgent_multiplier` | Float | Multiplicateur livraison urgente | 0.0 |
+
+<Tip>
+  Tous les multiplicateurs sont à **0 par défaut** (désactivés). Configurez-les selon vos besoins.
+</Tip>
+
+### Calcul de Prix
+
+#### Mode STANDARD
+
+```bash
+POST /api/delivery/pricing/calculate
+Content-Type: application/json
+
+{
+  "distance_km": 10.0,
+  "is_fragile": false,
+  "is_urgent": false,
+  "is_rush_hour": false
+}
+```
+
+#### Mode FLAT_RATE_ZONE (avec coordonnées)
+
+```bash
+POST /api/delivery/pricing/calculate
+Content-Type: application/json
+
+{
+  "distance_km": 8.0,
+  "pickup_lat": 5.35,
+  "pickup_lng": -4.01,
+  "delivery_lat": 5.36,
+  "delivery_lng": -4.00,
+  "is_fragile": false,
+  "is_urgent": false,
+  "is_rush_hour": false
+}
+```
+
+**Réponse** :
+```json
+{
+  "success": true,
+  "data": {
+    "base_fee": "500",
+    "distance_fee": "1000",
+    "distance_km": 10.0,
+    "multipliers_applied": [],
+    "subtotal": "1500",
+    "agent_commission": "225.00",
+    "total": "1500",
+    "breakdown": {
+      "base_fee": "500",
+      "distance_fee": "1000",
+      "rush_hour_fee": "0",
+      "weather_fee": "0",
+      "demand_fee": "0",
+      "fragile_fee": "0",
+      "urgent_fee": "0",
+      "agent_commission": "225.00",
+      "total": "1500"
+    }
+  }
+}
+```
+
+### Zones de Tarification
+
+#### Créer une zone (Super Admin)
+
+```bash
+POST /api/delivery/pricing/zones
+Authorization: Bearer <super_admin_token>
+Content-Type: application/json
+
+{
+  "name": "Cocody",
+  "description": "Zone Cocody avec tarif forfaitaire",
+  "geometry": {
+    "type": "Polygon",
+    "coordinates": [[
+      [-4.02, 5.34],
+      [-4.00, 5.34],
+      [-4.00, 5.37],
+      [-4.02, 5.37],
+      [-4.02, 5.34]
+    ]]
+  },
+  "base_fee": 500.0,
+  "price_per_km": 100.0,
+  "min_fee": 500.0,
+  "max_fee": 5000.0,
+  "priority": 1,
+  "flat_rate_enabled": true,
+  "flat_rate_price": 800.0,
+  "flat_rate_max_distance_km": 10.0
+}
+```
+
+#### Lister les zones (Public)
+
+```bash
+GET /api/delivery/pricing/zones
+```
+
+**Réponse** :
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "uuid",
+      "name": "Cocody",
+      "description": "Zone Cocody avec tarif forfaitaire",
+      "flat_rate_enabled": true,
+      "flat_rate_price": "800",
+      "flat_rate_max_distance_km": "10",
+      "is_active": true,
+      "created_at": "2025-11-05T10:00:00Z"
+    }
+  ]
+}
+```
+
+#### Supprimer une zone (Super Admin)
+
+```bash
+DELETE /api/delivery/pricing/zones/{zone_id}
+Authorization: Bearer <super_admin_token>
+```
+
+### Historique des Modifications (Super Admin)
+
+```bash
+GET /api/delivery/pricing/history?limit=50
+Authorization: Bearer <super_admin_token>
+```
+
+**Réponse** :
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "uuid",
+      "field_name": "pricing_mode",
+      "old_value": "STANDARD",
+      "new_value": "FLAT_RATE_ZONE",
+      "changed_by": "admin-uuid",
+      "changed_at": "2025-11-05T18:00:00Z",
+      "reason": "Activation mode flat rate pour Abidjan"
+    }
+  ]
+}
+```
+
+## 💳 Système de Wallet
+
+### Fonctionnement
+
+Le wallet agent fonctionne selon ce flux :
+
+1. **Création automatique** - Un wallet est créé automatiquement pour chaque agent lors de son inscription
+2. **Vérification avant assignation** - Avant d'assigner une livraison, le système vérifie :
+   - Wallet actif (status = ACTIVE)
+   - Solde ≥ 15% du montant de la commande
+3. **Déduction automatique** - Après assignation réussie :
+   - Déduction immédiate de 15% du wallet
+   - Transaction enregistrée
+   - Notification agent
+4. **Recharge** - L'agent peut recharger son wallet via Mobile Money (à venir) ou admin
+
+### Endpoints Wallet
+
+#### Consulter mon wallet (Agent)
+
+```bash
+GET /api/wallet
+Authorization: Bearer <agent_token>
+```
+
+**Réponse** :
+```json
+{
+  "success": true,
+  "data": {
+    "id": "wallet-uuid",
+    "agent_id": "agent-uuid",
+    "balance": "100000",
+    "currency": "FCFA",
+    "status": "ACTIVE",
+    "low_balance_alert": false,
+    "created_at": "2025-11-05T10:00:00Z",
+    "updated_at": "2025-11-05T18:00:00Z"
+  }
+}
+```
+
+#### Recharger mon wallet (Agent)
+
+```bash
+POST /api/wallet/recharge
+Authorization: Bearer <agent_token>
+Content-Type: application/json
+
+{
+  "amount": 50000,
+  "payment_method": "MOBILE_MONEY",
+  "external_reference": "MM-REF-123456"
+}
+```
+
+#### Historique des transactions (Agent)
+
+```bash
+GET /api/wallet/transactions?limit=50
+Authorization: Bearer <agent_token>
+```
+
+**Réponse** :
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "tx-uuid",
+      "wallet_id": "wallet-uuid",
+      "type": "RECHARGE",
+      "amount": "50000",
+      "balance_before": "50000",
+      "balance_after": "100000",
+      "status": "COMPLETED",
+      "description": "Recharge Mobile Money",
+      "created_at": "2025-11-05T18:00:00Z"
+    },
+    {
+      "id": "tx-uuid-2",
+      "wallet_id": "wallet-uuid",
+      "type": "DEDUCTION",
+      "amount": "165",
+      "balance_before": "100000",
+      "balance_after": "99835",
+      "status": "COMPLETED",
+      "description": "Commission livraison #ORD-123456",
+      "created_at": "2025-11-05T18:05:00Z"
+    }
+  ]
+}
+```
+
+#### Paiements non réglés (Agent)
+
+```bash
+GET /api/wallet/payments/unsettled
+Authorization: Bearer <agent_token>
+```
+
+#### Solde dû à la plateforme (Agent)
+
+```bash
+GET /api/wallet/balance-due
+Authorization: Bearer <agent_token>
+```
+
+## 🔒 Sécurité & Permissions
+
+### Endpoints Publics
+- ✅ `GET /api/delivery/pricing/config` - Consulter configuration
+- ✅ `POST /api/delivery/pricing/calculate` - Calculer prix
+- ✅ `GET /api/delivery/pricing/zones` - Lister zones
+
+### Endpoints Super Admin
+- 🔒 `PUT /api/delivery/pricing/config` - Modifier configuration
+- 🔒 `GET /api/delivery/pricing/history` - Historique modifications
+- 🔒 `POST /api/delivery/pricing/zones` - Créer zone
+- 🔒 `DELETE /api/delivery/pricing/zones/:id` - Supprimer zone
+
+### Endpoints Agent
+- 🔐 `GET /api/wallet` - Consulter wallet
+- 🔐 `POST /api/wallet/recharge` - Recharger
+- 🔐 `GET /api/wallet/transactions` - Historique
+- 🔐 `GET /api/wallet/payments/unsettled` - Paiements non réglés
+- 🔐 `GET /api/wallet/balance-due` - Solde dû
+
+## 📊 Cas d'Usage
+
+### Activer le Mode Gratuit
+
+```bash
+curl -X PUT https://api.ono.ci/api/delivery/pricing/config \
+  -H "Authorization: Bearer $SUPER_ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "fees_enabled": false,
+    "reason": "Promotion lancement - Livraisons gratuites"
+  }'
+```
+
+### Désactiver la Commission Agent
+
+```bash
+curl -X PUT https://api.ono.ci/api/delivery/pricing/config \
+  -H "Authorization: Bearer $SUPER_ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "agent_commission_enabled": false,
+    "reason": "Période d'essai - Pas de commission"
+  }'
+```
+
+### Activer Multiplicateurs (Rush Hour)
+
+```bash
+curl -X PUT https://api.ono.ci/api/delivery/pricing/config \
+  -H "Authorization: Bearer $SUPER_ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "rush_hour_multiplier": 0.25,
+    "rush_hours": {
+      "enabled": true,
+      "periods": [
+        {"start": "07:00", "end": "09:00"},
+        {"start": "17:00", "end": "19:00"}
+      ]
+    },
+    "reason": "Activation tarif heures de pointe"
+  }'
+```
+
+### Passer en Mode Flat Rate Zone
+
+```bash
+# 1. Activer le mode
+curl -X PUT https://api.ono.ci/api/delivery/pricing/config \
+  -H "Authorization: Bearer $SUPER_ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "pricing_mode": "FLAT_RATE_ZONE",
+    "reason": "Activation tarif forfaitaire par commune"
+  }'
+
+# 2. Créer les zones
+curl -X POST https://api.ono.ci/api/delivery/pricing/zones \
+  -H "Authorization: Bearer $SUPER_ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Cocody",
+    "flat_rate_enabled": true,
+    "flat_rate_price": 800.0,
+    "flat_rate_max_distance_km": 10.0,
+    "geometry": {...}
+  }'
+```
+
+## 🧪 Tests
+
+Collection Postman mise à jour disponible : `ONO_DELIVERY_Complete.postman_collection.json`
+
+### Scénarios Testés
+
+- ✅ Récupération configuration (mode STANDARD)
+- ✅ Calcul prix mode STANDARD (10 km = 1500 FCFA)
+- ✅ Calcul prix avec multiplicateurs
+- ✅ Création wallet automatique
+- ✅ Recharge wallet (50000 FCFA)
+- ✅ Vérification solde avant assignation
+- ✅ Déduction automatique après assignation (15%)
+- ✅ Protection : Pas de déduction sans assignation
+- ✅ Historique transactions
+- ✅ Paiements non réglés
+
+## 📚 Voir Aussi
+
+- [Standard Delivery](/api-reference/delivery-standard) - API livraisons standard
+- [Grouped Delivery](/api-reference/delivery-grouped) - API livraisons groupées
+- [Moving Service](/api-reference/delivery-moving) - API déménagement
+- [Delivery Overview](/api-reference/delivery-overview) - Vue d'ensemble

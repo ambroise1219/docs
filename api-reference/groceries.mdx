@@ -1,0 +1,211 @@
+# Groceries API
+
+L'API Groceries permet de gérer les magasins d'épicerie, les produits et les commandes.
+
+## 🛒 Magasins d'Épicerie
+
+### Lister les magasins
+
+```http
+GET /api/groceries/stores
+```
+
+**Paramètres de requête :**
+- `page` (optionnel) - Numéro de page pour la pagination
+- `limit` (optionnel) - Nombre de résultats par page
+- `city` (optionnel) - Filtrer par ville
+
+### Créer un magasin
+
+```http
+POST /api/groceries/stores
+Authorization: Bearer <access_token>
+Content-Type: application/json
+
+{
+  "name": "Supermarché Example",
+  "address": "123 Rue du Commerce",
+  "city": "Abidjan",
+  "phone": "+2250707070707",
+  "email": "contact@supermarche-example.ci",
+  "delivery_radius_km": 10,
+  "min_order_amount": 3000,
+  "delivery_fee": 1000,
+  "delivery_time_min": 45,
+  "delivery_time_max": 90
+}
+```
+
+### Récupérer un magasin
+
+```http
+GET /api/groceries/stores/{store_id}
+```
+
+### Mettre à jour un magasin
+
+```http
+PUT /api/groceries/stores/{store_id}
+Authorization: Bearer <access_token>
+Content-Type: application/json
+
+{
+  "name": "Supermarché Example Mis à Jour",
+  "description": "Description mise à jour"
+}
+```
+
+### Supprimer un magasin
+
+```http
+DELETE /api/groceries/stores/{store_id}
+Authorization: Bearer <access_token>
+```
+
+## 📂 Catégories de Produits
+
+### Lister les catégories d'un magasin
+
+```http
+GET /api/groceries/stores/{store_id}/categories
+```
+
+### Créer une catégorie
+
+```http
+POST /api/groceries/stores/{store_id}/categories
+Authorization: Bearer <access_token>
+Content-Type: application/json
+
+{
+  "name": "Fruits et Légumes",
+  "description": "Produits frais",
+  "sort_order": 1
+}
+```
+
+### Mettre à jour une catégorie
+
+```http
+PUT /api/groceries/stores/{store_id}/categories/{category_id}
+Authorization: Bearer <access_token>
+Content-Type: application/json
+
+{
+  "name": "Fruits et Légumes Mis à Jour"
+}
+```
+
+### Supprimer une catégorie
+
+```http
+DELETE /api/groceries/stores/{store_id}/categories/{category_id}
+Authorization: Bearer <access_token>
+```
+
+## 🍎 Produits
+
+### Lister les produits d'un magasin
+
+```http
+GET /api/groceries/stores/{store_id}/products
+```
+
+### Lister les produits d'une catégorie
+
+```http
+GET /api/groceries/categories/{category_id}/products
+```
+
+### Créer un produit
+
+```http
+POST /api/groceries/stores/{store_id}/products
+Authorization: Bearer <access_token>
+Content-Type: application/json
+
+{
+  "category_id": "{category_id}",
+  "name": "Pommes",
+  "description": "Pommes rouges fraîches",
+  "price": 1500,
+  "unit": "kg",
+  "stock_quantity": 50,
+  "is_available": true
+}
+```
+
+### Récupérer un produit
+
+```http
+GET /api/groceries/products/{product_id}
+```
+
+### Mettre à jour un produit
+
+```http
+PUT /api/groceries/stores/{store_id}/products/{product_id}
+Authorization: Bearer <access_token>
+Content-Type: application/json
+
+{
+  "name": "Pommes Premium",
+  "price": 1800,
+  "is_available": true
+}
+```
+
+### Supprimer un produit
+
+```http
+DELETE /api/groceries/stores/{store_id}/products/{product_id}
+Authorization: Bearer <access_token>
+```
+
+## 🛒 Commandes
+
+### Créer une commande
+
+```http
+POST /api/groceries/stores/{store_id}/orders
+Authorization: Bearer <access_token>
+Content-Type: application/json
+
+{
+  "items": [
+    {
+      "product_id": "product-uuid",
+      "quantity": 2,
+      "unit_price": 1500
+    }
+  ],
+  "delivery_address_id": "address-uuid",
+  "payment_method": "mobile_money"
+}
+```
+
+### Récupérer une commande
+
+```http
+GET /api/groceries/orders/{order_id}
+Authorization: Bearer <access_token>
+```
+
+### Mettre à jour le statut d'une commande
+
+```http
+PUT /api/groceries/orders/{order_id}/status
+Authorization: Bearer <access_token>
+Content-Type: application/json
+
+{
+  "status": "confirmed"
+}
+```
+
+### Lister mes commandes
+
+```http
+GET /api/groceries/orders/me
+Authorization: Bearer <access_token>
+```

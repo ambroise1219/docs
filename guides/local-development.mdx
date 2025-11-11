@@ -1,0 +1,210 @@
+# Local Development
+
+Ce guide vous aidera à configurer un environnement de développement local pour l'API ONO Backend.
+
+## 🛠️ Prérequis
+
+Avant de commencer, assurez-vous d'avoir installé les outils suivants :
+
+- Rust (édition 2021 ou supérieure) - https://www.rust-lang.org/
+- PostgreSQL (version 13 ou supérieure) - https://www.postgresql.org/
+- Redis - https://redis.io/
+- Node.js (pour les outils de développement) - https://nodejs.org/
+
+## 📦 Installation
+
+### 1. Cloner le dépôt
+
+```bash
+git clone https://github.com/ono/ono-backend.git
+cd ono-backend
+```
+
+### 2. Installer les dépendances Rust
+
+```bash
+cargo build
+```
+
+Cette commande téléchargera et compilera toutes les dépendances du projet.
+
+### 3. Configurer les bases de données
+
+Créez les bases de données nécessaires dans PostgreSQL :
+
+```sql
+CREATE DATABASE ono_main;
+CREATE DATABASE ono_food;
+CREATE DATABASE ono_delivery;
+CREATE DATABASE ono_social;
+CREATE DATABASE ono_medical;
+```
+
+### 4. Configurer les variables d'environnement
+
+Copiez le fichier d'exemple et configurez vos variables :
+
+```bash
+cp .env.example .env
+```
+
+Éditez le fichier `.env` avec vos configurations :
+
+```env
+# Configuration de base
+ENVIRONMENT=development
+JWT_SECRET=your-super-secret-jwt-key-change-in-production
+
+# Bases de données
+ONO_MAIN_DATABASE_URL=postgresql://user:password@localhost:5432/ono_main
+ONO_FOOD_DATABASE_URL=postgresql://user:password@localhost:5432/ono_food
+ONO_DELIVERY_DATABASE_URL=postgresql://user:password@localhost:5432/ono_delivery
+ONO_MEDICAL_DATABASE_URL=postgresql://user:password@localhost:5432/ono_medical
+DATABASE_URL=postgresql://user:password@localhost:5432/ono_main
+
+# Redis
+REDIS_URL=redis://127.0.0.1:6379
+
+# Configuration OTP/Wanotifier
+WANOTIFIER_API_KEY=your-wanotifier-api-key
+WANOTIFIER_API_URL=https://api.wanotifier.com/v1
+OTP_EXPIRATION_MINUTES=5
+OTP_MAX_ATTEMPTS=3
+```
+
+### 5. Exécuter les migrations
+
+Les migrations doivent être exécutées pour chaque base de données :
+
+```bash
+# Exécuter les migrations principales
+sqlx migrate run --database-url postgresql://user:password@localhost:5432/ono_main
+
+# Exécuter les migrations food
+sqlx migrate run --database-url postgresql://user:password@localhost:5432/ono_food
+
+# Exécuter les migrations delivery
+sqlx migrate run --database-url postgresql://user:password@localhost:5432/ono_delivery
+```
+
+Ou utilisez le script de migration intégré :
+
+```bash
+cargo run --bin run-migrations
+```
+
+### 6. Démarrer les services requis
+
+Démarrez Redis :
+
+```bash
+redis-server
+```
+
+### 7. Démarrer le serveur de développement
+
+```bash
+cargo run
+```
+
+Le serveur démarrera sur http://localhost:3000.
+
+## 🧪 Tests
+
+### Exécuter tous les tests
+
+```bash
+cargo test
+```
+
+### Exécuter les tests spécifiques à un module
+
+```bash
+cargo test food
+cargo test delivery
+```
+
+### Exécuter les tests d'intégration
+
+```bash
+./tests/test_all_food_endpoints.sh
+./tests/test_user_crud.sh
+```
+
+## 🐳 Développement avec Docker (Optionnel)
+
+Si vous préférez utiliser Docker pour votre environnement de développement :
+
+### 1. Démarrer les services avec Docker Compose
+
+```bash
+docker-compose up -d
+```
+
+### 2. Exécuter les migrations
+
+```bash
+docker-compose exec app cargo run --bin run-migrations
+```
+
+### 3. Démarrer le serveur
+
+```bash
+docker-compose exec app cargo run
+```
+
+## 🔧 Outils de développement utiles
+
+### Formatage du code
+
+```bash
+cargo fmt
+```
+
+### Vérification du code
+
+```bash
+cargo clippy
+```
+
+### Génération de la documentation
+
+```bash
+cargo doc --open
+```
+
+## 🌐 Accès aux services
+
+Une fois le serveur démarré, vous pouvez accéder aux services suivants :
+
+- **API principale** : http://localhost:3000
+- **Documentation Swagger** : http://localhost:3000/swagger-ui
+- **Serveur gRPC Pulse** : http://localhost:50051
+- **Documentation Mintlify** : http://localhost:3001 (si démarré séparément)
+
+## 🔫 Dépannage
+
+### Problèmes de compilation
+
+Si vous rencontrez des problèmes de compilation, essayez :
+
+```bash
+cargo clean
+cargo build
+```
+
+### Problèmes de base de données
+
+Vérifiez que vos bases de données sont accessibles :
+
+```bash
+psql postgresql://user:password@localhost:5432/ono_main -c "SELECT 1;"
+```
+
+### Problèmes de dépendances
+
+Mettez à jour les dépendances :
+
+```bash
+cargo update
+```

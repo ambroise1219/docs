@@ -1,0 +1,263 @@
+# Pharmacy API
+
+L'API Pharmacy permet de gérer les pharmacies, les médicaments et les ordonnances.
+
+## 🏥 Pharmacies
+
+### Lister les pharmacies
+
+```http
+GET /api/pharmacy/stores
+```
+
+**Paramètres de requête :**
+- `page` (optionnel) - Numéro de page pour la pagination
+- `limit` (optionnel) - Nombre de résultats par page
+- `city` (optionnel) - Filtrer par ville
+- `is_open` (optionnel) - Filtrer par statut d'ouverture
+
+### Créer une pharmacie
+
+```http
+POST /api/pharmacy/stores
+Authorization: Bearer <access_token>
+Content-Type: application/json
+
+{
+  "name": "Pharmacie Example",
+  "address": "123 Rue de la Santé",
+  "city": "Abidjan",
+  "phone": "+2250707070707",
+  "email": "contact@pharmacie-example.ci",
+  "license_number": "PHARM-2025-001",
+  "opening_hours": "08:00-20:00",
+  "is_24h": false
+}
+```
+
+### Récupérer une pharmacie
+
+```http
+GET /api/pharmacy/stores/{store_id}
+```
+
+### Mettre à jour une pharmacie
+
+```http
+PUT /api/pharmacy/stores/{store_id}
+Authorization: Bearer <access_token>
+Content-Type: application/json
+
+{
+  "name": "Pharmacie Example Mis à Jour",
+  "opening_hours": "07:00-21:00"
+}
+```
+
+### Supprimer une pharmacie
+
+```http
+DELETE /api/pharmacy/stores/{store_id}
+Authorization: Bearer <access_token>
+```
+
+## 💊 Catégories de Médicaments
+
+### Lister les catégories
+
+```http
+GET /api/pharmacy/categories
+```
+
+### Créer une catégorie
+
+```http
+POST /api/pharmacy/categories
+Authorization: Bearer <access_token>
+Content-Type: application/json
+
+{
+  "name": "Antibiotiques",
+  "description": "Médicaments antibiotiques"
+}
+```
+
+### Mettre à jour une catégorie
+
+```http
+PUT /api/pharmacy/categories/{category_id}
+Authorization: Bearer <access_token>
+Content-Type: application/json
+
+{
+  "name": "Antibiotiques Mis à Jour"
+}
+```
+
+### Supprimer une catégorie
+
+```http
+DELETE /api/pharmacy/categories/{category_id}
+Authorization: Bearer <access_token>
+```
+
+## 💊 Médicaments
+
+### Lister les médicaments
+
+```http
+GET /api/pharmacy/medicines
+```
+
+### Lister les médicaments d'une catégorie
+
+```http
+GET /api/pharmacy/categories/{category_id}/medicines
+```
+
+### Créer un médicament
+
+```http
+POST /api/pharmacy/medicines
+Authorization: Bearer <access_token>
+Content-Type: application/json
+
+{
+  "category_id": "{category_id}",
+  "name": "Amoxicilline 500mg",
+  "generic_name": "Amoxicilline",
+  "description": "Antibiotique de la famille des pénicillines",
+  "price": 2500,
+  "manufacturer": "Laboratoire Example",
+  "dosage": "500mg",
+  "form": "capsule",
+  "prescription_required": true,
+  "stock_quantity": 100,
+  "is_available": true
+}
+```
+
+### Récupérer un médicament
+
+```http
+GET /api/pharmacy/medicines/{medicine_id}
+```
+
+### Mettre à jour un médicament
+
+```http
+PUT /api/pharmacy/medicines/{medicine_id}
+Authorization: Bearer <access_token>
+Content-Type: application/json
+
+{
+  "price": 2800,
+  "is_available": true
+}
+```
+
+### Supprimer un médicament
+
+```http
+DELETE /api/pharmacy/medicines/{medicine_id}
+Authorization: Bearer <access_token>
+```
+
+## 📋 Ordonnances
+
+### Créer une ordonnance
+
+```http
+POST /api/pharmacy/prescriptions
+Authorization: Bearer <access_token>
+Content-Type: application/json
+
+{
+  "patient_name": "John Doe",
+  "patient_age": 35,
+  "doctor_name": "Dr. Smith",
+  "diagnosis": "Infection bactérienne",
+  "items": [
+    {
+      "medicine_id": "medicine-uuid",
+      "quantity": 2,
+      "dosage_instructions": "1 capsule 3 fois par jour pendant 7 jours"
+    }
+  ]
+}
+```
+
+### Récupérer une ordonnance
+
+```http
+GET /api/pharmacy/prescriptions/{prescription_id}
+Authorization: Bearer <access_token>
+```
+
+### Mettre à jour une ordonnance
+
+```http
+PUT /api/pharmacy/prescriptions/{prescription_id}
+Authorization: Bearer <access_token>
+Content-Type: application/json
+
+{
+  "status": "dispensed"
+}
+```
+
+### Lister mes ordonnances
+
+```http
+GET /api/pharmacy/prescriptions/me
+Authorization: Bearer <access_token>
+```
+
+## 🛒 Commandes de Médicaments
+
+### Créer une commande
+
+```http
+POST /api/pharmacy/stores/{store_id}/orders
+Authorization: Bearer <access_token>
+Content-Type: application/json
+
+{
+  "items": [
+    {
+      "medicine_id": "medicine-uuid",
+      "quantity": 2,
+      "unit_price": 2500
+    }
+  ],
+  "delivery_address_id": "address-uuid",
+  "payment_method": "mobile_money",
+  "prescription_id": "prescription-uuid"
+}
+```
+
+### Récupérer une commande
+
+```http
+GET /api/pharmacy/orders/{order_id}
+Authorization: Bearer <access_token>
+```
+
+### Mettre à jour le statut d'une commande
+
+```http
+PUT /api/pharmacy/orders/{order_id}/status
+Authorization: Bearer <access_token>
+Content-Type: application/json
+
+{
+  "status": "confirmed"
+}
+```
+
+### Lister mes commandes
+
+```http
+GET /api/pharmacy/orders/me
+Authorization: Bearer <access_token>
+```

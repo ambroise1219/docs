@@ -1,0 +1,822 @@
+# Food API
+
+<Note>
+  **Production Ready** - Plateforme complète de commande de nourriture avec restaurants, plats, promotions et avis
+</Note>
+
+L'API Food permet de gérer une plateforme complète de commande de nourriture avec restaurants, menus, suppléments, commandes, promotions, avis et favoris.
+
+## 🚀 Quick Start
+
+<Steps>
+  <Step title="Créer un restaurant">
+    Inscription restaurateur avec détails complets
+  </Step>
+  <Step title="Ajouter le menu">
+    Catégories, plats, suppléments
+  </Step>
+  <Step title="Gérer les commandes">
+    Réception et traitement des commandes
+  </Step>
+  <Step title="Livraison">
+    Intégration avec le module Delivery
+  </Step>
+</Steps>
+
+## 📦 Modules
+
+<CardGroup cols={3}>
+  <Card title="Restaurants" icon="store">
+    Gestion restaurants
+    - Profil complet
+    - Horaires d'ouverture
+    - Zone de livraison
+    - Images et galerie
+  </Card>
+  
+  <Card title="Menu" icon="utensils">
+    Gestion du menu
+    - Catégories de plats
+    - Plats avec nutrition
+    - Suppléments
+    - Personnalisation
+  </Card>
+  
+  <Card title="Commandes" icon="shopping-cart">
+    Gestion des commandes
+    - Panier avec suppléments
+    - Codes promo
+    - Suivi en temps réel
+    - Intégration livraison
+  </Card>
+</CardGroup>
+
+## 💻 Setup & Configuration
+
+### Schémas Zod
+
+```typescript
+// lib/schemas/food.schema.ts
+import { z } from 'zod';
+
+export const CuisineTypeSchema = z.enum([
+  'african', 'french', 'italian', 'chinese', 'japanese',
+  'indian', 'mexican', 'american', 'lebanese', 'other'
+]);
+
+export const DietaryTypeSchema = z.enum([
+  'vegetarian', 'vegan', 'halal', 'kosher', 'gluten_free'
+]);
+
+export const RestaurantStatusSchema = z.enum(['pending', 'active', 'suspended', 'closed']);
+export const OrderStatusSchema = z.enum([
+  'pending', 'confirmed', 'preparing', 'ready', 'out_for_delivery', 'delivered', 'cancelled'
+]);
+
+// Restaurant
+export const CreateRestaurantSchema = z.object({
+  name: z.string().min(2).max(255),
+  description: z.string().optional(),
+  address: z.string().min(5),
+  phone: z.string().regex(/^\+225\d{10}$/).optional(),
+  email: z.string().email().optional(),
+  website: z.string().url().optional(),
+  cuisine_types: z.array(CuisineTypeSchema),
+  city: z.string().optional(),
+  district: z.string().optional(),
+  delivery_radius_km: z.number().positive().optional(),
+  min_order_amount: z.number().nonnegative().optional(),
+  delivery_fee: z.number().nonnegative().optional(),
+  delivery_time_min: z.number().int().positive().optional(),
+  delivery_time_max: z.number().int().positive().optional(),
+  logo_url: z.string().url().optional(),
+  cover_image_url: z.string().url().optional(),
+  opening_hours: z.record(z.any()).optional(),
+});
+
+// Dish
+export const CreateDishSchema = z.object({
+  restaurant_id: z.string().uuid(),
+  category_id: z.string().uuid(),
+  name: z.string().min(2).max(255),
+  description: z.string().optional(),
+  base_price: z.number().positive(),
+  sale_price: z.number().positive().optional(),
+  image_url: z.string().url().optional(),
+  calories: z.number().int().nonnegative().optional(),
+  allergens: z.array(z.string()).optional(),
+  dietary_types: z.array(DietaryTypeSchema).optional(),
+  ingredients: z.array(z.string()).optional(),
+  preparation_time_min: z.number().int().positive().optional(),
+  is_customizable: z.boolean().default(false),
+});
+
+// Order
+export const OrderItemSchema = z.object({
+  dish_id: z.string().uuid(),
+  quantity: z.number().int().min(1),
+  customizations: z.record(z.any()).optional(),
+  special_instructions: z.string().optional(),
+});
+
+export const CreateOrderSchema = z.object({
+  restaurant_id: z.string().uuid(),
+  items: z.array(OrderItemSchema).min(1),
+  delivery_address: z.string().min(5),
+  delivery_lat: z.number().optional(),
+  delivery_lng: z.number().optional(),
+  delivery_instructions: z.string().optional(),
+  delivery_contact: z.string().regex(/^\+225\d{10}$/).optional(),
+  payment_method: z.enum(['cash', 'card', 'mobile_money']),
+  special_instructions: z.string().optional(),
+  promo_code: z.string().optional(),
+});
+
+export type CreateRestaurantInput = z.infer<typeof CreateRestaurantSchema>;
+export type CreateDishInput = z.infer<typeof CreateDishSchema>;
+export type CreateOrderInput = z.infer<typeof CreateOrderSchema>;
+```
+
+## 🔌 API Hooks (TanStack Query)
+
+```typescript
+// lib/api/hooks/useFood.ts
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import api from '../axios';
+
+// ========== RESTAURANTS ==========
+
+export const useRestaurants = (filters?: {
+  city?: string;
+  cuisine_types?: string[];
+  search?: string;
+  page?: number;
+}) => {
+  return useQuery({
+    queryKey: ['restaurants', filters],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (filters?.city) params.append('city', filters.city);
+      if (filters?.search) params.append('search', filters.search);
+      if (filters?.page) params.append('page', filters.page.toString());
+      
+      const response = await api.get(`/api/food/restaurants?${params}`);
+      return response.data.data;
+    },
+  });
+};
+
+export const useRestaurant = (restaurantId: string) => {
+  return useQuery({
+    queryKey: ['restaurant', restaurantId],
+    queryFn: async () => {
+      const response = await api.get(`/api/food/restaurants/${restaurantId}`);
+      return response.data.data;
+    },
+    enabled: !!restaurantId,
+  });
+};
+
+export const useCreateRestaurant = () => {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: async (data: CreateRestaurantInput) => {
+      const response = await api.post('/api/food/restaurants', data);
+      return response.data.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['restaurants'] });
+    },
+  });
+};
+
+// ========== DISHES ==========
+
+export const useDishes = (restaurantId: string) => {
+  return useQuery({
+    queryKey: ['dishes', restaurantId],
+    queryFn: async () => {
+      const response = await api.get(`/api/food/restaurants/${restaurantId}/dishes`);
+      return response.data.data;
+    },
+    enabled: !!restaurantId,
+  });
+};
+
+export const useDish = (dishId: string) => {
+  return useQuery({
+    queryKey: ['dish', dishId],
+    queryFn: async () => {
+      const response = await api.get(`/api/food/dishes/${dishId}`);
+      return response.data.data;
+    },
+    enabled: !!dishId,
+  });
+};
+
+export const useCreateDish = () => {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: async (data: CreateDishInput) => {
+      const response = await api.post(
+        `/api/food/restaurants/${data.restaurant_id}/dishes`,
+        data
+      );
+      return response.data.data;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['dishes', variables.restaurant_id] });
+    },
+  });
+};
+
+// ========== ORDERS ==========
+
+export const useCreateOrder = () => {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: async (data: CreateOrderInput) => {
+      const response = await api.post(
+        `/api/food/restaurants/${data.restaurant_id}/orders`,
+        data
+      );
+      return response.data.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['orders'] });
+    },
+  });
+};
+
+export const useOrder = (orderId: string) => {
+  return useQuery({
+    queryKey: ['order', orderId],
+    queryFn: async () => {
+      const response = await api.get(`/api/food/orders/${orderId}`);
+      return response.data.data;
+    },
+    enabled: !!orderId,
+    refetchInterval: (data) => {
+      if (data?.status === 'delivered' || data?.status === 'cancelled') {
+        return false;
+      }
+      return 10000; // Poll toutes les 10 secondes
+    },
+  });
+};
+
+export const useMyOrders = () => {
+  return useQuery({
+    queryKey: ['my-orders'],
+    queryFn: async () => {
+      const response = await api.get('/api/food/orders/me');
+      return response.data.data;
+    },
+  });
+};
+
+// ========== FAVORITES ==========
+
+export const useFavoriteRestaurant = () => {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: async (restaurantId: string) => {
+      const response = await api.post(`/api/food/restaurants/${restaurantId}/favorite`);
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['favorite-restaurants'] });
+    },
+  });
+};
+
+export const useFavoriteRestaurants = () => {
+  return useQuery({
+    queryKey: ['favorite-restaurants'],
+    queryFn: async () => {
+      const response = await api.get('/api/food/favorites/restaurants');
+      return response.data.data;
+    },
+  });
+};
+
+// ========== REVIEWS ==========
+
+export const useCreateRestaurantReview = () => {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: async ({ restaurantId, rating, comment }: {
+      restaurantId: string;
+      rating: number;
+      comment?: string;
+    }) => {
+      const response = await api.post(
+        `/api/food/restaurants/${restaurantId}/reviews`,
+        { rating, comment }
+      );
+      return response.data.data;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['restaurant', variables.restaurantId] });
+      queryClient.invalidateQueries({ queryKey: ['restaurant-reviews', variables.restaurantId] });
+    },
+  });
+};
+
+// ========== PROMOTIONS ==========
+
+export const useValidatePromoCode = () => {
+  return useMutation({
+    mutationFn: async ({ code, restaurantId, subtotal }: {
+      code: string;
+      restaurantId: string;
+      subtotal: number;
+    }) => {
+      const response = await api.post('/api/food/promotions/validate', {
+        code,
+        restaurant_id: restaurantId,
+        order_subtotal: subtotal,
+      });
+      return response.data.data;
+    },
+  });
+};
+```
+
+## 🎨 Composants React / Next.js
+
+### Liste de restaurants
+
+```typescript
+// components/RestaurantList.tsx
+'use client';
+
+import { useRestaurants } from '@/lib/api/hooks/useFood';
+import { useState } from 'react';
+
+export default function RestaurantList() {
+  const [filters, setFilters] = useState({ city: '', search: '' });
+  const { data: restaurants, isLoading } = useRestaurants(filters);
+  
+  if (isLoading) return <div>Chargement...</div>;
+  
+  return (
+    <div className="space-y-4">
+      {/* Filtres */}
+      <div className="flex gap-4">
+        <input
+          type="text"
+          placeholder="Rechercher..."
+          value={filters.search}
+          onChange={(e) => setFilters({ ...filters, search: e.target.value })}
+          className="flex-1 p-2 border rounded"
+        />
+        <select
+          value={filters.city}
+          onChange={(e) => setFilters({ ...filters, city: e.target.value })}
+          className="p-2 border rounded"
+        >
+          <option value="">Toutes les villes</option>
+          <option value="Abidjan">Abidjan</option>
+          <option value="Yamoussoukro">Yamoussoukro</option>
+        </select>
+      </div>
+      
+      {/* Liste */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {restaurants?.map((restaurant: any) => (
+          <RestaurantCard key={restaurant.id} restaurant={restaurant} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function RestaurantCard({ restaurant }: { restaurant: any }) {
+  return (
+    <div className="bg-white rounded shadow overflow-hidden cursor-pointer hover:shadow-lg transition">
+      <img
+        src={restaurant.cover_image_url || '/placeholder.jpg'}
+        alt={restaurant.name}
+        className="w-full h-48 object-cover"
+      />
+      <div className="p-4">
+        <h3 className="font-bold text-lg">{restaurant.name}</h3>
+        <p className="text-sm text-gray-600">{restaurant.description}</p>
+        <div className="flex items-center gap-2 mt-2">
+          <span className="text-yellow-500">⭐ {restaurant.average_rating.toFixed(1)}</span>
+          <span className="text-gray-500">({restaurant.total_reviews} avis)</span>
+        </div>
+        <div className="flex items-center justify-between mt-2">
+          <span className="text-sm text-gray-600">
+            {restaurant.delivery_time_min}-{restaurant.delivery_time_max} min
+          </span>
+          <span className="text-sm font-semibold">
+            {restaurant.delivery_fee} FCFA
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+```
+
+### Menu du restaurant
+
+```typescript
+// components/RestaurantMenu.tsx
+'use client';
+
+import { useDishes, useRestaurant } from '@/lib/api/hooks/useFood';
+import { useState } from 'react';
+
+export default function RestaurantMenu({ restaurantId }: { restaurantId: string }) {
+  const { data: restaurant } = useRestaurant(restaurantId);
+  const { data: dishes } = useDishes(restaurantId);
+  const [cart, setCart] = useState<any[]>([]);
+  
+  const addToCart = (dish: any) => {
+    setCart([...cart, { ...dish, quantity: 1 }]);
+  };
+  
+  return (
+    <div className="space-y-6">
+      {/* Restaurant Header */}
+      <div className="bg-white rounded shadow p-6">
+        <h1 className="text-3xl font-bold">{restaurant?.name}</h1>
+        <p className="text-gray-600">{restaurant?.description}</p>
+        <div className="flex items-center gap-4 mt-4">
+          <span>⭐ {restaurant?.average_rating}</span>
+          <span>🕐 {restaurant?.delivery_time_min}-{restaurant?.delivery_time_max} min</span>
+          <span>🚚 {restaurant?.delivery_fee} FCFA</span>
+        </div>
+      </div>
+      
+      {/* Menu */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {dishes?.map((dish: any) => (
+          <DishCard key={dish.id} dish={dish} onAddToCart={addToCart} />
+        ))}
+      </div>
+      
+      {/* Cart */}
+      {cart.length > 0 && (
+        <div className="fixed bottom-0 left-0 right-0 bg-white shadow-lg p-4">
+          <div className="flex justify-between items-center">
+            <span>{cart.length} items</span>
+            <button className="bg-green-500 text-white px-6 py-2 rounded">
+              Commander
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DishCard({ dish, onAddToCart }: { dish: any; onAddToCart: (dish: any) => void }) {
+  return (
+    <div className="bg-white rounded shadow p-4 flex gap-4">
+      <img
+        src={dish.image_url || '/placeholder.jpg'}
+        alt={dish.name}
+        className="w-24 h-24 object-cover rounded"
+      />
+      <div className="flex-1">
+        <h3 className="font-bold">{dish.name}</h3>
+        <p className="text-sm text-gray-600">{dish.description}</p>
+        <div className="flex items-center justify-between mt-2">
+          <span className="font-bold">{dish.base_price} FCFA</span>
+          <button
+            onClick={() => onAddToCart(dish)}
+            className="bg-blue-500 text-white px-4 py-1 rounded"
+          >
+            Ajouter
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+```
+
+### Panier et commande
+
+```typescript
+// components/FoodCheckout.tsx
+'use client';
+
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { CreateOrderSchema, CreateOrderInput } from '@/lib/schemas/food.schema';
+import { useCreateOrder, useValidatePromoCode } from '@/lib/api/hooks/useFood';
+import { useState } from 'react';
+
+export default function FoodCheckout({ restaurantId, cart }: {
+  restaurantId: string;
+  cart: any[];
+}) {
+  const [promoDiscount, setPromoDiscount] = useState(0);
+  const { mutate: createOrder, isPending } = useCreateOrder();
+  const { mutate: validatePromo, isPending: isValidatingPromo } = useValidatePromoCode();
+  
+  const {
+    register,
+    handleSubmit,
+    watch,
+    formState: { errors },
+  } = useForm<CreateOrderInput>({
+    resolver: zodResolver(CreateOrderSchema),
+    defaultValues: {
+      restaurant_id: restaurantId,
+      items: cart.map(item => ({
+        dish_id: item.id,
+        quantity: item.quantity,
+      })),
+    },
+  });
+  
+  const promoCode = watch('promo_code');
+  
+  const subtotal = cart.reduce((sum, item) => sum + (item.base_price * item.quantity), 0);
+  const deliveryFee = 1000; // À récupérer du restaurant
+  const total = subtotal + deliveryFee - promoDiscount;
+  
+  const handleValidatePromo = () => {
+    if (promoCode) {
+      validatePromo(
+        { code: promoCode, restaurantId, subtotal },
+        {
+          onSuccess: (data) => {
+            setPromoDiscount(data.discount_amount);
+            alert(`Code promo appliqué ! -${data.discount_amount} FCFA`);
+          },
+          onError: () => {
+            alert('Code promo invalide');
+          },
+        }
+      );
+    }
+  };
+  
+  const onSubmit = (data: CreateOrderInput) => {
+    createOrder(data, {
+      onSuccess: (order) => {
+        window.location.href = `/orders/${order.id}`;
+      },
+    });
+  };
+  
+  return (
+    <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+      {/* Cart Items */}
+      <div className="bg-white p-4 rounded shadow">
+        <h3 className="font-bold mb-4">Votre commande</h3>
+        {cart.map((item, index) => (
+          <div key={index} className="flex justify-between py-2">
+            <span>{item.quantity}x {item.name}</span>
+            <span>{item.base_price * item.quantity} FCFA</span>
+          </div>
+        ))}
+      </div>
+      
+      {/* Delivery Address */}
+      <div className="bg-white p-4 rounded shadow">
+        <h3 className="font-bold mb-4">Adresse de livraison</h3>
+        <input
+          {...register('delivery_address')}
+          className="w-full p-2 border rounded"
+          placeholder="Cocody Riviera, Rue des Jardins"
+        />
+        {errors.delivery_address && (
+          <p className="text-red-500 text-sm">{errors.delivery_address.message}</p>
+        )}
+      </div>
+      
+      {/* Promo Code */}
+      <div className="bg-white p-4 rounded shadow">
+        <h3 className="font-bold mb-4">Code promo</h3>
+        <div className="flex gap-2">
+          <input
+            {...register('promo_code')}
+            className="flex-1 p-2 border rounded"
+            placeholder="PROMO2024"
+          />
+          <button
+            type="button"
+            onClick={handleValidatePromo}
+            disabled={isValidatingPromo}
+            className="bg-gray-200 px-4 py-2 rounded"
+          >
+            Valider
+          </button>
+        </div>
+        {promoDiscount > 0 && (
+          <p className="text-green-500 mt-2">✅ Réduction: -{promoDiscount} FCFA</p>
+        )}
+      </div>
+      
+      {/* Payment Method */}
+      <div className="bg-white p-4 rounded shadow">
+        <h3 className="font-bold mb-4">Méthode de paiement</h3>
+        <select {...register('payment_method')} className="w-full p-2 border rounded">
+          <option value="cash">Espèces</option>
+          <option value="card">Carte bancaire</option>
+          <option value="mobile_money">Mobile Money</option>
+        </select>
+      </div>
+      
+      {/* Total */}
+      <div className="bg-white p-4 rounded shadow">
+        <div className="flex justify-between py-2">
+          <span>Sous-total</span>
+          <span>{subtotal} FCFA</span>
+        </div>
+        <div className="flex justify-between py-2">
+          <span>Frais de livraison</span>
+          <span>{deliveryFee} FCFA</span>
+        </div>
+        {promoDiscount > 0 && (
+          <div className="flex justify-between py-2 text-green-500">
+            <span>Réduction</span>
+            <span>-{promoDiscount} FCFA</span>
+          </div>
+        )}
+        <div className="flex justify-between py-2 font-bold text-lg border-t mt-2 pt-2">
+          <span>Total</span>
+          <span>{total} FCFA</span>
+        </div>
+      </div>
+      
+      <button
+        type="submit"
+        disabled={isPending}
+        className="w-full bg-green-500 text-white p-3 rounded font-bold"
+      >
+        {isPending ? 'Commande en cours...' : `Commander ${total} FCFA`}
+      </button>
+    </form>
+  );
+}
+```
+
+## 📡 Endpoints API
+
+### Restaurants (40+ endpoints)
+
+```bash
+# Lister restaurants
+GET /api/food/restaurants?city=Abidjan&search=pizza
+
+# Restaurants ouverts maintenant
+GET /api/food/restaurants/status/open-now
+
+# Restaurants populaires
+GET /api/food/restaurants/popular
+
+# Créer restaurant
+POST /api/food/restaurants
+
+# Récupérer restaurant
+GET /api/food/restaurants/{id}
+
+# Mes restaurants (owner)
+GET /api/food/restaurants/owner/me
+```
+
+### Plats
+
+```bash
+# Lister plats d'un restaurant
+GET /api/food/restaurants/{restaurant_id}/dishes
+
+# Plats populaires
+GET /api/food/dishes/popular
+
+# Créer plat
+POST /api/food/restaurants/{restaurant_id}/dishes
+
+# Récupérer plat
+GET /api/food/dishes/{id}
+```
+
+### Commandes
+
+```bash
+# Créer commande
+POST /api/food/restaurants/{restaurant_id}/orders
+
+# Mes commandes
+GET /api/food/orders/me
+
+# Détails commande
+GET /api/food/orders/{id}
+
+# Mettre à jour statut
+PUT /api/food/orders/{id}/status
+
+# Demander livraison
+POST /api/food/orders/{id}/request-delivery
+```
+
+### Promotions
+
+```bash
+# Valider code promo
+POST /api/food/promotions/validate
+
+# Créer promotion (owner)
+POST /api/food/restaurants/{restaurant_id}/promotions
+
+# Lister promotions
+GET /api/food/restaurants/{restaurant_id}/promotions
+```
+
+### Avis
+
+```bash
+# Créer avis restaurant
+POST /api/food/restaurants/{restaurant_id}/reviews
+
+# Créer avis plat
+POST /api/food/dishes/{dish_id}/reviews
+
+# Lister avis
+GET /api/food/restaurants/{restaurant_id}/reviews
+```
+
+### Favoris
+
+```bash
+# Ajouter aux favoris
+POST /api/food/restaurants/{restaurant_id}/favorite
+
+# Mes restaurants favoris
+GET /api/food/favorites/restaurants
+
+# Mes plats favoris
+GET /api/food/favorites/dishes
+```
+
+## 🔌 Événements Socket.io
+
+```typescript
+// Événements commandes
+socket.on('food_order:status_updated', (data: {
+  order_id: string;
+  status: string;
+  estimated_delivery_time?: string;
+}) => {
+  console.log('Statut commande:', data);
+});
+
+socket.on('food_order:preparing', (data: {
+  order_id: string;
+  preparation_time_min: number;
+}) => {
+  console.log('Préparation commencée:', data);
+});
+
+socket.on('food_order:ready', (data: {
+  order_id: string;
+}) => {
+  console.log('Commande prête !');
+});
+
+socket.on('food_order:out_for_delivery', (data: {
+  order_id: string;
+  delivery_agent: {
+    name: string;
+    phone: string;
+  };
+}) => {
+  console.log('En cours de livraison:', data);
+});
+```
+
+## 💰 Tarification
+
+### Calcul du total
+
+```
+Total = Sous-total + Frais de livraison + Taxes - Réduction
+```
+
+**Exemple** :
+- Plat 1 : 3500 FCFA × 2 = 7000 FCFA
+- Plat 2 : 2500 FCFA × 1 = 2500 FCFA
+- **Sous-total** : 9500 FCFA
+- Frais de livraison : 1000 FCFA
+- Code promo (-10%) : -950 FCFA
+- **Total** : 9550 FCFA
+
+## 📚 Voir Aussi
+
+- [Standard Delivery](/api-reference/delivery-standard) - Intégration livraison
+- [Authentication](/api-reference/authentication) - Authentification
+- [Users](/api-reference/users) - Gestion utilisateurs

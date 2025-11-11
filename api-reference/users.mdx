@@ -1,0 +1,1183 @@
+---
+title: "Users API"
+description: "Gestion complète des utilisateurs : profil, adresses, documents, localisation, statuts"
+---
+
+# 👤 Users API
+
+API complète pour la gestion des profils utilisateurs, adresses, documents (CNI, permis), localisation temps réel et statuts drivers.
+
+---
+
+## 📋 User Object
+
+### Structure complète
+
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "phone": "+2250789456123",
+  "email": "john.doe@example.com",
+  "first_name": "John",
+  "last_name": "Doe",
+  "full_name": "John Doe",
+  "date_of_birth": "1990-05-15",
+  "age": 34,
+  "lieu_residence": "Cocody, Abidjan",
+  "is_profile_completed": true,
+  "profile_picture_url": "https://res.cloudinary.com/ono/image/upload/v1234567890/profiles/550e8400.jpg",
+  "role": "CLIENT",
+  "driver_status": "OFFLINE",
+  "last_known_location": {
+    "lat": 5.3599,
+    "lng": -4.0083,
+    "last_updated": "2025-11-06T23:00:00Z"
+  },
+  "rating": 4.8,
+  "total_deliveries": 42,
+  "is_driver_profile_complete": false,
+  "is_phone_verified": true,
+  "is_email_verified": false,
+  "created_at": "2025-01-15T10:30:00Z",
+  "updated_at": "2025-11-06T22:00:00Z"
+}
+```
+
+### User Roles
+
+| Role | Description |
+|------|-------------|
+| `CLIENT` | Utilisateur standard (commandes) |
+| `DRIVER` | Livreur |
+| `RESTAURANT_OWNER` | Propriétaire de restaurant |
+| `ADMIN` | Administrateur |
+
+### Driver Status
+
+| Status | Description |
+|--------|-------------|
+| `OFFLINE` | Hors ligne |
+| `ONLINE` | En ligne mais pas disponible |
+| `AVAILABLE` | Disponible pour livraisons |
+| `BUSY` | En cours de livraison |
+
+---
+
+## 👤 Profile Management
+
+### Get Profile
+
+Récupère le profil de l'utilisateur connecté.
+
+<CodeGroup>
+```typescript Next.js / TanStack Query
+import { useQuery } from '@tanstack/react-query'
+import api from '@/lib/api'
+
+export const useProfile = () => {
+  return useQuery({
+    queryKey: ['profile'],
+    queryFn: async () => {
+      const { data } = await api.get('/users/profile')
+      return data
+    },
+  })
+}
+
+// Usage
+function ProfilePage() {
+  const { data: profile, isLoading } = useProfile()
+  
+  if (isLoading) return <div>Loading...</div>
+  
+  return (
+    <div>
+      <h1>{profile.full_name}</h1>
+      <p>{profile.email}</p>
+      {profile.profile_picture_url && (
+        <img src={profile.profile_picture_url} alt="Profile" />
+      )}
+    </div>
+  )
+}
+```
+
+```typescript Expo
+import { useQuery } from '@tanstack/react-query'
+import api from '@/lib/api'
+
+export const useProfile = () => {
+  return useQuery({
+    queryKey: ['profile'],
+    queryFn: async () => {
+      const { data } = await api.get('/users/profile')
+      return data
+    },
+  })
+}
+
+// Usage
+function ProfileScreen() {
+  const { data: profile, isLoading } = useProfile()
+  
+  if (isLoading) return <ActivityIndicator />
+  
+  return (
+    <View>
+      <Text>{profile.full_name}</Text>
+      {profile.profile_picture_url && (
+        <Image source={{ uri: profile.profile_picture_url }} />
+      )}
+    </View>
+  )
+}
+```
+
+```bash cURL
+curl -X GET http://localhost:9000/api/users/profile \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+</CodeGroup>
+
+**Response 200**
+
+Retourne l'objet [User complet](#user-object).
+
+---
+
+### Update Profile (JSON)
+
+Met à jour le profil utilisateur (sans upload de photo).
+
+<CodeGroup>
+```typescript Next.js (Zod + React Hook Form)
+import { useForm } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
+import { z } from 'zod'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import api from '@/lib/api'
+
+const updateProfileSchema = z.object({
+  first_name: z.string().min(2).max(100).optional(),
+  last_name: z.string().min(2).max(100).optional(),
+  email: z.string().email().optional(),
+  date_of_birth: z.string().optional(), // Format: "YYYY-MM-DD"
+  lieu_residence: z.string().max(255).optional(),
+  address: z.string().max(500).optional(),
+  last_known_lat: z.number().min(-90).max(90).optional(),
+  last_known_lng: z.number().min(-180).max(180).optional(),
+  referral_code: z.string().max(50).optional(),
+})
+
+type UpdateProfileInput = z.infer<typeof updateProfileSchema>
+
+const useUpdateProfile = () => {
+  const queryClient = useQueryClient()
+  
+  return useMutation({
+    mutationFn: async (data: UpdateProfileInput) => {
+      const { data: response } = await api.put('/users/profile/json', data)
+      return response
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['profile'] })
+    },
+  })
+}
+
+// Component
+function EditProfileForm() {
+  const { register, handleSubmit, formState: { errors } } = useForm<UpdateProfileInput>({
+    resolver: zodResolver(updateProfileSchema),
+  })
+  
+  const { mutate: updateProfile, isPending } = useUpdateProfile()
+  
+  return (
+    <form onSubmit={handleSubmit((data) => updateProfile(data))}>
+      <input {...register('first_name')} placeholder="Prénom" />
+      {errors.first_name && <span>{errors.first_name.message}</span>}
+      
+      <input {...register('last_name')} placeholder="Nom" />
+      <input {...register('email')} type="email" placeholder="Email" />
+      <input {...register('date_of_birth')} type="date" />
+      <input {...register('lieu_residence')} placeholder="Lieu de résidence" />
+      
+      <button type="submit" disabled={isPending}>
+        {isPending ? 'Mise à jour...' : 'Mettre à jour'}
+      </button>
+    </form>
+  )
+}
+```
+
+```typescript Expo
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import api from '@/lib/api'
+
+export const useUpdateProfile = () => {
+  const queryClient = useQueryClient()
+  
+  return useMutation({
+    mutationFn: async (data: UpdateProfileInput) => {
+      const { data: response } = await api.put('/users/profile/json', data)
+      return response
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['profile'] })
+    },
+  })
+}
+```
+
+```bash cURL
+curl -X PUT http://localhost:9000/api/users/profile/json \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "first_name": "John",
+    "last_name": "Doe",
+    "email": "john.doe@example.com",
+    "date_of_birth": "1990-05-15",
+    "lieu_residence": "Cocody, Abidjan"
+  }'
+```
+</CodeGroup>
+
+**Request Body**
+
+| Champ            | Type   | Requis | Description                  |
+|------------------|--------|--------|------------------------------|
+| first_name       | string | ❌     | Prénom (2-100 caractères)    |
+| last_name        | string | ❌     | Nom (2-100 caractères)       |
+| email            | string | ❌     | Email valide                 |
+| date_of_birth    | string | ❌     | Date de naissance (YYYY-MM-DD) |
+| lieu_residence   | string | ❌     | Lieu de résidence            |
+| address          | string | ❌     | Adresse complète             |
+| last_known_lat   | number | ❌     | Latitude (-90 à 90)          |
+| last_known_lng   | number | ❌     | Longitude (-180 à 180)       |
+| referral_code    | string | ❌     | Code de parrainage           |
+
+**Response 200**
+
+Retourne l'objet [User mis à jour](#user-object).
+
+---
+
+### Update Profile (Multipart avec photo)
+
+Met à jour le profil avec upload optionnel de photo de profil.
+
+<CodeGroup>
+```typescript Next.js (avec photo)
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import api from '@/lib/api'
+
+const useUpdateProfileWithPhoto = () => {
+  const queryClient = useQueryClient()
+  
+  return useMutation({
+    mutationFn: async (data: {
+      first_name?: string
+      last_name?: string
+      email?: string
+      profile_picture?: File
+    }) => {
+      const formData = new FormData()
+      
+      if (data.first_name) formData.append('first_name', data.first_name)
+      if (data.last_name) formData.append('last_name', data.last_name)
+      if (data.email) formData.append('email', data.email)
+      if (data.profile_picture) formData.append('profile_picture', data.profile_picture)
+      
+      const { data: response } = await api.put('/users/profile', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      return response
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['profile'] })
+    },
+  })
+}
+
+// Component
+function UploadProfilePicture() {
+  const [file, setFile] = useState<File | null>(null)
+  const { mutate: updateProfile, isPending } = useUpdateProfileWithPhoto()
+  
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (file) {
+      updateProfile({ profile_picture: file })
+    }
+  }
+  
+  return (
+    <form onSubmit={handleSubmit}>
+      <input
+        type="file"
+        accept="image/*"
+        onChange={(e) => setFile(e.target.files?.[0] || null)}
+      />
+      <button type="submit" disabled={isPending}>
+        Uploader
+      </button>
+    </form>
+  )
+}
+```
+
+```typescript Expo (ImagePicker)
+import * as ImagePicker from 'expo-image-picker'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import api from '@/lib/api'
+
+export const useUpdateProfileWithPhoto = () => {
+  const queryClient = useQueryClient()
+  
+  return useMutation({
+    mutationFn: async (data: {
+      first_name?: string
+      last_name?: string
+      profile_picture?: { uri: string; type: string; name: string }
+    }) => {
+      const formData = new FormData()
+      
+      if (data.first_name) formData.append('first_name', data.first_name)
+      if (data.last_name) formData.append('last_name', data.last_name)
+      
+      if (data.profile_picture) {
+        formData.append('profile_picture', {
+          uri: data.profile_picture.uri,
+          type: data.profile_picture.type,
+          name: data.profile_picture.name,
+        } as any)
+      }
+      
+      const { data: response } = await api.put('/users/profile', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      return response
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['profile'] })
+    },
+  })
+}
+
+// Usage
+function UploadProfilePicture() {
+  const { mutate: updateProfile } = useUpdateProfileWithPhoto()
+  
+  const pickImage = async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.8,
+    })
+    
+    if (!result.canceled) {
+      const uri = result.assets[0].uri
+      const filename = uri.split('/').pop() || 'profile.jpg'
+      
+      updateProfile({
+        profile_picture: {
+          uri,
+          type: 'image/jpeg',
+          name: filename,
+        },
+      })
+    }
+  }
+  
+  return <Button title="Changer la photo" onPress={pickImage} />
+}
+```
+
+```bash cURL
+curl -X PUT http://localhost:9000/api/users/profile \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -F "first_name=John" \
+  -F "last_name=Doe" \
+  -F "profile_picture=@/path/to/photo.jpg"
+```
+</CodeGroup>
+
+**Form Data Fields**
+
+| Champ            | Type   | Description               |
+|------------------|--------|---------------------------|
+| first_name       | string | Prénom                    |
+| last_name        | string | Nom                       |
+| email            | string | Email                     |
+| profile_picture  | file   | Image (max 5MB, JPG/PNG)  |
+
+**Response 200**
+
+Retourne l'objet [User avec photo uploadée](#user-object).
+
+**Notes**
+
+- L'upload est géré par **Cloudinary**
+- La photo est automatiquement optimisée et redimensionnée
+- Formats supportés : JPG, PNG, WebP
+- Taille max : 5MB
+
+---
+
+### Verify Email
+
+Marque l'email de l'utilisateur comme vérifié.
+
+<CodeGroup>
+```typescript Next.js
+const useVerifyEmail = () => {
+  const queryClient = useQueryClient()
+  
+  return useMutation({
+    mutationFn: async () => {
+      const { data } = await api.post('/users/profile/verify-email')
+      return data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['profile'] })
+    },
+  })
+}
+```
+
+```bash cURL
+curl -X POST http://localhost:9000/api/users/profile/verify-email \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+</CodeGroup>
+
+**Response 200**
+
+```json
+{
+  "success": true,
+  "message": "Email vérifié avec succès"
+}
+```
+
+---
+
+### Complete Profile
+
+Marque le profil comme complet (toutes les informations requises sont remplies).
+
+<CodeGroup>
+```typescript Next.js
+const useCompleteProfile = () => {
+  const queryClient = useQueryClient()
+  
+  return useMutation({
+    mutationFn: async () => {
+      const { data } = await api.post('/users/profile/complete')
+      return data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['profile'] })
+    },
+  })
+}
+```
+
+```bash cURL
+curl -X POST http://localhost:9000/api/users/profile/complete \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+</CodeGroup>
+
+**Response 200**
+
+```json
+{
+  "success": true,
+  "message": "Profil marqué comme complet"
+}
+```
+
+---
+
+## 📍 Addresses Management
+
+### List Addresses
+
+Liste toutes les adresses de l'utilisateur.
+
+<CodeGroup>
+```typescript Next.js
+import { useQuery } from '@tanstack/react-query'
+import api from '@/lib/api'
+
+export const useAddresses = () => {
+  return useQuery({
+    queryKey: ['addresses'],
+    queryFn: async () => {
+      const { data } = await api.get('/users/addresses')
+      return data
+    },
+  })
+}
+
+// Usage
+function AddressList() {
+  const { data: addresses, isLoading } = useAddresses()
+  
+  if (isLoading) return <div>Loading...</div>
+  
+  return (
+    <div>
+      {addresses.map((address) => (
+        <div key={address.id}>
+          <h3>{address.name}</h3>
+          <p>{address.address}</p>
+          {address.is_default && <span>Adresse par défaut</span>}
+        </div>
+      ))}
+    </div>
+  )
+}
+```
+
+```typescript Expo
+export const useAddresses = () => {
+  return useQuery({
+    queryKey: ['addresses'],
+    queryFn: async () => {
+      const { data } = await api.get('/users/addresses')
+      return data
+    },
+  })
+}
+```
+
+```bash cURL
+curl -X GET http://localhost:9000/api/users/addresses \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+</CodeGroup>
+
+**Response 200**
+
+```json
+[
+  {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "name": "Maison",
+    "address": "Cocody, Riviera Golf, Abidjan",
+    "lat": 5.3599,
+    "lng": -4.0083,
+    "is_default": true,
+    "display_name": "Maison - Cocody, Riviera Golf, Abidjan",
+    "created_at": "2025-01-15T10:30:00Z"
+  },
+  {
+    "id": "650e8400-e29b-41d4-a716-446655440001",
+    "name": "Bureau",
+    "address": "Plateau, Abidjan",
+    "lat": 5.3167,
+    "lng": -4.0167,
+    "is_default": false,
+    "display_name": "Bureau - Plateau, Abidjan",
+    "created_at": "2025-01-20T14:00:00Z"
+  }
+]
+```
+
+---
+
+### Create Address
+
+Crée une nouvelle adresse.
+
+<CodeGroup>
+```typescript Next.js (Zod + React Hook Form)
+import { useForm } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
+import { z } from 'zod'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import api from '@/lib/api'
+
+const createAddressSchema = z.object({
+  name: z.string().min(2).max(100),
+  address: z.string().min(5).max(500),
+  lat: z.number().min(-90).max(90),
+  lng: z.number().min(-180).max(180),
+  is_default: z.boolean().optional(),
+})
+
+type CreateAddressInput = z.infer<typeof createAddressSchema>
+
+const useCreateAddress = () => {
+  const queryClient = useQueryClient()
+  
+  return useMutation({
+    mutationFn: async (data: CreateAddressInput) => {
+      const { data: response } = await api.post('/users/addresses', data)
+      return response
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['addresses'] })
+    },
+  })
+}
+
+// Component
+function CreateAddressForm() {
+  const { register, handleSubmit, formState: { errors } } = useForm<CreateAddressInput>({
+    resolver: zodResolver(createAddressSchema),
+  })
+  
+  const { mutate: createAddress, isPending } = useCreateAddress()
+  
+  return (
+    <form onSubmit={handleSubmit((data) => createAddress(data))}>
+      <input {...register('name')} placeholder="Nom (ex: Maison, Bureau)" />
+      <input {...register('address')} placeholder="Adresse complète" />
+      <input {...register('lat', { valueAsNumber: true })} type="number" step="any" />
+      <input {...register('lng', { valueAsNumber: true })} type="number" step="any" />
+      <label>
+        <input {...register('is_default')} type="checkbox" />
+        Adresse par défaut
+      </label>
+      <button disabled={isPending}>Créer</button>
+    </form>
+  )
+}
+```
+
+```typescript Expo (avec Google Places)
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import api from '@/lib/api'
+
+export const useCreateAddress = () => {
+  const queryClient = useQueryClient()
+  
+  return useMutation({
+    mutationFn: async (data: CreateAddressInput) => {
+      const { data: response } = await api.post('/users/addresses', data)
+      return response
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['addresses'] })
+    },
+  })
+}
+
+// Usage avec Google Places Autocomplete
+function AddAddressScreen() {
+  const { mutate: createAddress } = useCreateAddress()
+  
+  const handleSelectPlace = (place: any) => {
+    createAddress({
+      name: 'Nouvelle adresse',
+      address: place.description,
+      lat: place.geometry.location.lat,
+      lng: place.geometry.location.lng,
+      is_default: false,
+    })
+  }
+  
+  return (
+    <GooglePlacesAutocomplete
+      onPress={handleSelectPlace}
+      // ...config
+    />
+  )
+}
+```
+
+```bash cURL
+curl -X POST http://localhost:9000/api/users/addresses \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Maison",
+    "address": "Cocody, Riviera Golf, Abidjan",
+    "lat": 5.3599,
+    "lng": -4.0083,
+    "is_default": true
+  }'
+```
+</CodeGroup>
+
+**Request Body**
+
+| Champ      | Type    | Requis | Description                    |
+|------------|---------|--------|--------------------------------|
+| name       | string  | ✅     | Nom de l'adresse (2-100 car.)  |
+| address    | string  | ✅     | Adresse complète (5-500 car.)  |
+| lat        | number  | ✅     | Latitude (-90 à 90)            |
+| lng        | number  | ✅     | Longitude (-180 à 180)         |
+| is_default | boolean | ❌     | Adresse par défaut (défaut: false) |
+
+**Response 200**
+
+Retourne l'adresse créée.
+
+---
+
+### Update Address
+
+Met à jour une adresse existante.
+
+<CodeGroup>
+```typescript Next.js
+const useUpdateAddress = () => {
+  const queryClient = useQueryClient()
+  
+  return useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: Partial<CreateAddressInput> }) => {
+      const { data: response } = await api.put(`/users/addresses/${id}`, data)
+      return response
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['addresses'] })
+    },
+  })
+}
+
+// Usage
+const { mutate: updateAddress } = useUpdateAddress()
+updateAddress({
+  id: '550e8400-e29b-41d4-a716-446655440000',
+  data: { name: 'Maison principale' },
+})
+```
+
+```bash cURL
+curl -X PUT http://localhost:9000/api/users/addresses/550e8400-e29b-41d4-a716-446655440000 \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Maison principale"}'
+```
+</CodeGroup>
+
+**Request Body**
+
+Tous les champs sont optionnels (voir [Create Address](#create-address)).
+
+**Response 200**
+
+Retourne l'adresse mise à jour.
+
+---
+
+### Set Default Address
+
+Définit une adresse comme adresse par défaut.
+
+<CodeGroup>
+```typescript Next.js
+const useSetDefaultAddress = () => {
+  const queryClient = useQueryClient()
+  
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { data } = await api.put(`/users/addresses/${id}/default`)
+      return data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['addresses'] })
+    },
+  })
+}
+```
+
+```bash cURL
+curl -X PUT http://localhost:9000/api/users/addresses/550e8400-e29b-41d4-a716-446655440000/default \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+</CodeGroup>
+
+**Response 200**
+
+```json
+{
+  "success": true,
+  "message": "Adresse définie par défaut"
+}
+```
+
+---
+
+### Delete Address
+
+Supprime une adresse.
+
+<CodeGroup>
+```typescript Next.js
+const useDeleteAddress = () => {
+  const queryClient = useQueryClient()
+  
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { data } = await api.delete(`/users/addresses/${id}`)
+      return data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['addresses'] })
+    },
+  })
+}
+```
+
+```bash cURL
+curl -X DELETE http://localhost:9000/api/users/addresses/550e8400-e29b-41d4-a716-446655440000 \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+</CodeGroup>
+
+**Response 200**
+
+```json
+{
+  "success": true,
+  "message": "Adresse supprimée"
+}
+```
+
+---
+
+## 📍 Location Tracking
+
+### Update Location (Real-time)
+
+Met à jour la localisation de l'utilisateur en temps réel (pour drivers).
+
+<CodeGroup>
+```typescript Expo (Background Location)
+import * as Location from 'expo-location'
+import { useMutation } from '@tanstack/react-query'
+import api from '@/lib/api'
+
+export const useUpdateLocation = () => {
+  return useMutation({
+    mutationFn: async (data: { lat: number; lng: number }) => {
+      const { data: response } = await api.put('/users/location', data)
+      return response
+    },
+  })
+}
+
+// Background location tracking
+async function startLocationTracking() {
+  const { status } = await Location.requestForegroundPermissionsAsync()
+  if (status !== 'granted') return
+  
+  const { mutate: updateLocation } = useUpdateLocation()
+  
+  await Location.watchPositionAsync(
+    {
+      accuracy: Location.Accuracy.High,
+      distanceInterval: 100, // Update tous les 100m
+      timeInterval: 30000,   // Ou toutes les 30s
+    },
+    (location) => {
+      updateLocation({
+        lat: location.coords.latitude,
+        lng: location.coords.longitude,
+      })
+    }
+  )
+}
+```
+
+```bash cURL
+curl -X PUT http://localhost:9000/api/users/location \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "lat": 5.3599,
+    "lng": -4.0083
+  }'
+```
+</CodeGroup>
+
+**Request Body**
+
+| Champ | Type   | Requis | Description          |
+|-------|--------|--------|----------------------|
+| lat   | number | ✅     | Latitude (-90 à 90)  |
+| lng   | number | ✅     | Longitude (-180 à 180) |
+
+**Response 200**
+
+```json
+{
+  "success": true,
+  "message": "Localisation mise à jour avec succès"
+}
+```
+
+---
+
+## 🚗 Driver Management
+
+### Update Driver Status
+
+Met à jour le statut du driver (OFFLINE, ONLINE, AVAILABLE, BUSY).
+
+<CodeGroup>
+```typescript Expo (Driver App)
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import api from '@/lib/api'
+
+type DriverStatus = 'OFFLINE' | 'ONLINE' | 'AVAILABLE' | 'BUSY'
+
+export const useUpdateDriverStatus = () => {
+  const queryClient = useQueryClient()
+  
+  return useMutation({
+    mutationFn: async (status: DriverStatus) => {
+      const { data } = await api.put('/users/driver-status', { status })
+      return data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['profile'] })
+    },
+  })
+}
+
+// Usage
+function DriverStatusToggle() {
+  const { data: profile } = useProfile()
+  const { mutate: updateStatus } = useUpdateDriverStatus()
+  
+  const toggleAvailability = () => {
+    const newStatus = profile.driver_status === 'AVAILABLE' ? 'OFFLINE' : 'AVAILABLE'
+    updateStatus(newStatus)
+  }
+  
+  return (
+    <Switch
+      value={profile.driver_status === 'AVAILABLE'}
+      onValueChange={toggleAvailability}
+    />
+  )
+}
+```
+
+```bash cURL
+curl -X PUT http://localhost:9000/api/users/driver-status \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"status": "AVAILABLE"}'
+```
+</CodeGroup>
+
+**Request Body**
+
+| Champ  | Type   | Requis | Description                                      |
+|--------|--------|--------|--------------------------------------------------|
+| status | string | ✅     | OFFLINE, ONLINE, AVAILABLE, ou BUSY              |
+
+**Response 200**
+
+```json
+{
+  "success": true,
+  "message": "Statut driver mis à jour: AVAILABLE"
+}
+```
+
+---
+
+## 📄 Driver Documents
+
+### Upload CNI (Recto)
+
+Upload du recto de la Carte Nationale d'Identité.
+
+<CodeGroup>
+```typescript Expo (ImagePicker)
+import * as ImagePicker from 'expo-image-picker'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import api from '@/lib/api'
+
+export const useUploadCniRecto = () => {
+  const queryClient = useQueryClient()
+  
+  return useMutation({
+    mutationFn: async (imageUri: string) => {
+      const formData = new FormData()
+      formData.append('file', {
+        uri: imageUri,
+        type: 'image/jpeg',
+        name: 'cni_recto.jpg',
+      } as any)
+      
+      const { data } = await api.post('/users/profile/documents/cni/recto', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      return data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['profile'] })
+    },
+  })
+}
+
+// Usage
+function UploadCNI() {
+  const { mutate: uploadRecto } = useUploadCniRecto()
+  
+  const pickImage = async () => {
+    const result = await ImagePicker.launchCameraAsync({
+      allowsEditing: true,
+      aspect: [16, 10],
+      quality: 0.9,
+    })
+    
+    if (!result.canceled) {
+      uploadRecto(result.assets[0].uri)
+    }
+  }
+  
+  return <Button title="Prendre photo CNI (Recto)" onPress={pickImage} />
+}
+```
+
+```bash cURL
+curl -X POST http://localhost:9000/api/users/profile/documents/cni/recto \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -F "file=@/path/to/cni_recto.jpg"
+```
+</CodeGroup>
+
+**Response 200**
+
+```json
+{
+  "success": true,
+  "message": "CNI recto uploadé avec succès",
+  "file_url": "https://res.cloudinary.com/ono/image/upload/v1234567890/documents/cni_recto_550e8400.jpg"
+}
+```
+
+### Autres documents
+
+Les endpoints suivants fonctionnent de la même manière :
+
+- `POST /users/profile/documents/cni/verso` - Upload CNI verso
+- `POST /users/profile/documents/permis/recto` - Upload permis recto
+- `POST /users/profile/documents/permis/verso` - Upload permis verso
+
+---
+
+## 🎯 Endpoints Summary
+
+### Profile
+
+| Endpoint | Method | Auth | Description |
+|----------|--------|------|-------------|
+| `/users/profile` | GET | ✅ | Récupérer profil |
+| `/users/profile` | PUT | ✅ | Mettre à jour (multipart) |
+| `/users/profile/json` | PUT | ✅ | Mettre à jour (JSON) |
+| `/users/profile/verify-email` | POST | ✅ | Vérifier email |
+| `/users/profile/complete` | POST | ✅ | Marquer profil complet |
+
+### Addresses
+
+| Endpoint | Method | Auth | Description |
+|----------|--------|------|-------------|
+| `/users/addresses` | GET | ✅ | Lister adresses |
+| `/users/addresses` | POST | ✅ | Créer adresse |
+| `/users/addresses/:id` | PUT | ✅ | Modifier adresse |
+| `/users/addresses/:id/default` | PUT | ✅ | Définir par défaut |
+| `/users/addresses/:id` | DELETE | ✅ | Supprimer adresse |
+
+### Location & Driver
+
+| Endpoint | Method | Auth | Description |
+|----------|--------|------|-------------|
+| `/users/location` | PUT | ✅ | Mettre à jour localisation |
+| `/users/driver-status` | PUT | ✅ | Mettre à jour statut driver |
+
+### Documents
+
+| Endpoint | Method | Auth | Description |
+|----------|--------|------|-------------|
+| `/users/profile/documents/cni/recto` | POST | ✅ | Upload CNI recto |
+| `/users/profile/documents/cni/verso` | POST | ✅ | Upload CNI verso |
+| `/users/profile/documents/permis/recto` | POST | ✅ | Upload permis recto |
+| `/users/profile/documents/permis/verso` | POST | ✅ | Upload permis verso |
+
+---
+
+## 🧪 Testing
+
+<CodeGroup>
+```typescript Vitest (Profile Update)
+import { describe, it, expect } from 'vitest'
+import { z } from 'zod'
+
+const updateProfileSchema = z.object({
+  first_name: z.string().min(2).max(100).optional(),
+  last_name: z.string().min(2).max(100).optional(),
+  email: z.string().email().optional(),
+})
+
+describe('Profile Validation', () => {
+  it('should validate profile update', () => {
+    const valid = updateProfileSchema.safeParse({
+      first_name: 'John',
+      last_name: 'Doe',
+      email: 'john@example.com',
+    })
+    expect(valid.success).toBe(true)
+  })
+  
+  it('should reject invalid email', () => {
+    const invalid = updateProfileSchema.safeParse({
+      email: 'invalid-email',
+    })
+    expect(invalid.success).toBe(false)
+  })
+})
+```
+</CodeGroup>
+
+---
+
+## 📡 Real-time Updates (Socket.IO)
+
+Écouter les mises à jour de profil en temps réel :
+
+<CodeGroup>
+```typescript Next.js / Expo
+import { useEffect } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
+import io from 'socket.io-client'
+
+function useProfileSocket() {
+  const queryClient = useQueryClient()
+  
+  useEffect(() => {
+    const socket = io(process.env.NEXT_PUBLIC_WS_URL, {
+      auth: { token: localStorage.getItem('access_token') },
+    })
+    
+    socket.on('profile:updated', (data) => {
+      queryClient.setQueryData(['profile'], data)
+    })
+    
+    socket.on('location:updated', (data) => {
+      queryClient.setQueryData(['profile'], (old: any) => ({
+        ...old,
+        last_known_location: data,
+      }))
+    })
+    
+    return () => {
+      socket.disconnect()
+    }
+  }, [queryClient])
+}
+```
+</CodeGroup>

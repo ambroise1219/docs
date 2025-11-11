@@ -1,0 +1,593 @@
+---
+title: "Auth - Authentification"
+description: "Système d'authentification OTP (mobile) et 2FA (admin) avec JWT"
+---
+
+# 🔐 Module Auth - Authentification
+
+Système d'authentification complet avec OTP pour mobile et 2FA pour admin.
+
+## 🎯 Fonctionnalités
+
+- **OTP Mobile** - Authentification par SMS (clients)
+- **Admin 2FA** - Email + Password + OTP (gestionnaires)
+- **JWT Tokens** - Access + Refresh tokens
+- **Session Management** - Logout, logout all devices
+- **Password Reset** - Réinitialisation sécurisée
+- **Auth Logs** - Historique et statistiques
+
+---
+
+## 📦 Setup & Configuration
+
+### Installation
+
+```bash
+npm install axios @tanstack/react-query zod react-hook-form @hookform/resolvers/zod
+```
+
+### Configuration Axios
+
+```typescript
+// lib/api/axios.ts
+import axios from 'axios';
+
+const api = axios.create({
+  baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080',
+  timeout: 10000,
+});
+
+// Intercepteur pour ajouter le token
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem('access_token');
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
+// Intercepteur pour gérer les erreurs
+api.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    if (error.response?.status === 401) {
+      const refreshToken = localStorage.getItem('refresh_token');
+      if (refreshToken) {
+        try {
+          const { data } = await api.post('/api/auth/refresh', { refresh_token: refreshToken });
+          localStorage.setItem('access_token', data.access_token);
+          error.config.headers.Authorization = `Bearer ${data.access_token}`;
+          return api.request(error.config);
+        } catch {
+          localStorage.clear();
+          window.location.href = '/login';
+        }
+      }
+    }
+    return Promise.reject(error);
+  }
+);
+
+export default api;
+```
+
+### Schémas Zod
+
+```typescript
+// lib/schemas/auth.schema.ts
+import { z } from 'zod';
+
+export const GenerateOtpSchema = z.object({
+  phone: z.string().min(9).max(15),
+});
+
+export const VerifyOtpSchema = z.object({
+  phone: z.string().min(9).max(15),
+  otp_code: z.string().min(4).max(10),
+});
+
+export const AdminLoginSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(8),
+});
+
+export const AdminMfaSchema = z.object({
+  mfa_token: z.string().min(1),
+  otp_code: z.string().min(4).max(6),
+});
+
+export type GenerateOtpInput = z.infer<typeof GenerateOtpSchema>;
+export type VerifyOtpInput = z.infer<typeof VerifyOtpSchema>;
+export type AdminLoginInput = z.infer<typeof AdminLoginSchema>;
+export type AdminMfaInput = z.infer<typeof AdminMfaSchema>;
+```
+
+---
+
+## 🪝 Hooks TanStack Query
+
+### 1. useGenerateOtp
+
+```typescript
+// lib/api/hooks/useAuth.ts
+import { useMutation } from '@tanstack/react-query';
+import api from '../axios';
+
+export const useGenerateOtp = () => {
+  return useMutation({
+    mutationFn: async (data: { phone: string }) => {
+      const response = await api.post('/api/auth/otp/generate', data);
+      return response.data;
+    },
+  });
+};
+```
+
+### 2. useVerifyOtp
+
+```typescript
+export const useVerifyOtp = () => {
+  return useMutation({
+    mutationFn: async (data: { phone: string; otp_code: string }) => {
+      const response = await api.post('/api/auth/otp/verify', data);
+      return response.data;
+    },
+    onSuccess: (data) => {
+      localStorage.setItem('access_token', data.tokens.access_token);
+      localStorage.setItem('refresh_token', data.tokens.refresh_token);
+      localStorage.setItem('user', JSON.stringify(data.user));
+    },
+  });
+};
+```
+
+### 3. useAdminLogin
+
+```typescript
+export const useAdminLogin = () => {
+  return useMutation({
+    mutationFn: async (data: { email: string; password: string }) => {
+      const response = await api.post('/api/auth/admin/login', data);
+      return response.data;
+    },
+    onSuccess: (data) => {
+      sessionStorage.setItem('mfa_token', data.mfa_token);
+    },
+  });
+};
+```
+
+### 4. useAdminVerifyMfa
+
+```typescript
+export const useAdminVerifyMfa = () => {
+  return useMutation({
+    mutationFn: async (data: { mfa_token: string; otp_code: string }) => {
+      const response = await api.post('/api/auth/admin/verify-mfa', data);
+      return response.data;
+    },
+    onSuccess: (data) => {
+      localStorage.setItem('access_token', data.tokens.access_token);
+      localStorage.setItem('refresh_token', data.tokens.refresh_token);
+      localStorage.setItem('admin', JSON.stringify(data.admin));
+      sessionStorage.removeItem('mfa_token');
+    },
+  });
+};
+```
+
+### 5. useLogout
+
+```typescript
+export const useLogout = () => {
+  return useMutation({
+    mutationFn: async () => {
+      const user = JSON.parse(localStorage.getItem('user') || '{}');
+      const refreshToken = localStorage.getItem('refresh_token');
+      
+      await api.post('/api/auth/logout', {
+        user_id: user.id,
+        refresh_token: refreshToken,
+      });
+    },
+    onSuccess: () => {
+      localStorage.clear();
+      window.location.href = '/login';
+    },
+  });
+};
+```
+
+---
+
+## 📱 Composants React/Next.js
+
+### Formulaire OTP Mobile
+
+```typescript
+'use client';
+
+import { useState } from 'react';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { GenerateOtpSchema, VerifyOtpSchema } from '@/lib/schemas/auth.schema';
+import { useGenerateOtp, useVerifyOtp } from '@/lib/api/hooks/useAuth';
+import { useRouter } from 'next/navigation';
+
+export default function OtpLoginForm() {
+  const router = useRouter();
+  const [step, setStep] = useState<'phone' | 'otp'>('phone');
+  const [phone, setPhone] = useState('');
+
+  const { mutate: generateOtp, isPending: isGenerating } = useGenerateOtp();
+  const { mutate: verifyOtp, isPending: isVerifying } = useVerifyOtp();
+
+  const phoneForm = useForm({
+    resolver: zodResolver(GenerateOtpSchema),
+  });
+
+  const otpForm = useForm({
+    resolver: zodResolver(VerifyOtpSchema),
+  });
+
+  const onPhoneSubmit = (data: any) => {
+    setPhone(data.phone);
+    generateOtp(data, {
+      onSuccess: () => setStep('otp'),
+    });
+  };
+
+  const onOtpSubmit = (data: any) => {
+    verifyOtp(
+      { phone, otp_code: data.otp_code },
+      {
+        onSuccess: () => router.push('/dashboard'),
+      }
+    );
+  };
+
+  if (step === 'phone') {
+    return (
+      <form onSubmit={phoneForm.handleSubmit(onPhoneSubmit)} className="space-y-4">
+        <div>
+          <label className="block mb-2">Numéro de téléphone</label>
+          <input
+            {...phoneForm.register('phone')}
+            type="tel"
+            placeholder="+225 07 XX XX XX XX"
+            className="w-full p-3 border rounded"
+          />
+        </div>
+        <button
+          type="submit"
+          disabled={isGenerating}
+          className="w-full bg-blue-500 text-white p-3 rounded"
+        >
+          {isGenerating ? 'Envoi...' : 'Recevoir le code'}
+        </button>
+      </form>
+    );
+  }
+
+  return (
+    <form onSubmit={otpForm.handleSubmit(onOtpSubmit)} className="space-y-4">
+      <div>
+        <label className="block mb-2">Code OTP</label>
+        <input
+          {...otpForm.register('otp_code')}
+          type="text"
+          placeholder="1234"
+          maxLength={6}
+          className="w-full p-3 border rounded text-center text-2xl"
+        />
+      </div>
+      <button
+        type="submit"
+        disabled={isVerifying}
+        className="w-full bg-blue-500 text-white p-3 rounded"
+      >
+        {isVerifying ? 'Vérification...' : 'Vérifier'}
+      </button>
+    </form>
+  );
+}
+```
+
+### Formulaire Admin 2FA
+
+```typescript
+'use client';
+
+import { useState } from 'react';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { AdminLoginSchema, AdminMfaSchema } from '@/lib/schemas/auth.schema';
+import { useAdminLogin, useAdminVerifyMfa } from '@/lib/api/hooks/useAuth';
+import { useRouter } from 'next/navigation';
+
+export default function AdminLoginForm() {
+  const router = useRouter();
+  const [step, setStep] = useState<'login' | 'mfa'>('login');
+
+  const { mutate: adminLogin, isPending: isLoggingIn } = useAdminLogin();
+  const { mutate: verifyMfa, isPending: isVerifying } = useAdminVerifyMfa();
+
+  const loginForm = useForm({
+    resolver: zodResolver(AdminLoginSchema),
+  });
+
+  const mfaForm = useForm({
+    resolver: zodResolver(AdminMfaSchema),
+  });
+
+  const onLoginSubmit = (data: any) => {
+    adminLogin(data, {
+      onSuccess: () => setStep('mfa'),
+    });
+  };
+
+  const onMfaSubmit = (data: any) => {
+    const mfaToken = sessionStorage.getItem('mfa_token');
+    verifyMfa(
+      { mfa_token: mfaToken!, otp_code: data.otp_code },
+      {
+        onSuccess: () => router.push('/admin/dashboard'),
+      }
+    );
+  };
+
+  if (step === 'login') {
+    return (
+      <form onSubmit={loginForm.handleSubmit(onLoginSubmit)} className="space-y-4">
+        <div>
+          <label className="block mb-2">Email</label>
+          <input
+            {...loginForm.register('email')}
+            type="email"
+            className="w-full p-3 border rounded"
+          />
+        </div>
+        <div>
+          <label className="block mb-2">Mot de passe</label>
+          <input
+            {...loginForm.register('password')}
+            type="password"
+            className="w-full p-3 border rounded"
+          />
+        </div>
+        <button
+          type="submit"
+          disabled={isLoggingIn}
+          className="w-full bg-blue-600 text-white p-3 rounded"
+        >
+          {isLoggingIn ? 'Connexion...' : 'Se connecter'}
+        </button>
+      </form>
+    );
+  }
+
+  return (
+    <form onSubmit={mfaForm.handleSubmit(onMfaSubmit)} className="space-y-4">
+      <div className="bg-blue-50 p-4 rounded mb-4">
+        <p className="text-sm">Un code a été envoyé par SMS</p>
+      </div>
+      <div>
+        <label className="block mb-2">Code OTP</label>
+        <input
+          {...mfaForm.register('otp_code')}
+          type="text"
+          maxLength={6}
+          className="w-full p-3 border rounded text-center text-2xl"
+        />
+      </div>
+      <button
+        type="submit"
+        disabled={isVerifying}
+        className="w-full bg-blue-600 text-white p-3 rounded"
+      >
+        {isVerifying ? 'Vérification...' : 'Vérifier'}
+      </button>
+    </form>
+  );
+}
+```
+
+---
+
+## 📡 Endpoints API
+
+### 1. Générer OTP
+
+```bash
+POST /api/auth/otp/generate
+```
+
+**Body:**
+```json
+{
+  "phone": "+2250173226070"
+}
+```
+
+**Réponse:**
+```json
+{
+  "success": true,
+  "message": "OTP envoyé avec succès",
+  "phone": "+2250173226070",
+  "is_new_user": false,
+  "expires_in": 300
+}
+```
+
+### 2. Vérifier OTP
+
+```bash
+POST /api/auth/otp/verify
+```
+
+**Body:**
+```json
+{
+  "phone": "+2250173226070",
+  "otp_code": "1234"
+}
+```
+
+**Réponse:**
+```json
+{
+  "success": true,
+  "user": {
+    "id": "uuid",
+    "phone": "+2250173226070",
+    "first_name": "John"
+  },
+  "tokens": {
+    "access_token": "eyJ...",
+    "refresh_token": "eyJ...",
+    "expires_in": 3600
+  }
+}
+```
+
+### 3. Admin Login (Étape 1)
+
+```bash
+POST /api/auth/admin/login
+```
+
+**Body:**
+```json
+{
+  "email": "admin@ono.ci",
+  "password": "SecurePass123"
+}
+```
+
+**Réponse:**
+```json
+{
+  "success": true,
+  "mfa_token": "uuid",
+  "user_id": "uuid",
+  "expires_in": 300,
+  "otp_sent": true
+}
+```
+
+### 4. Admin Verify MFA (Étape 2)
+
+```bash
+POST /api/auth/admin/verify-mfa
+```
+
+**Body:**
+```json
+{
+  "mfa_token": "uuid",
+  "otp_code": "1234"
+}
+```
+
+**Réponse:**
+```json
+{
+  "success": true,
+  "admin": {
+    "id": "uuid",
+    "email": "admin@ono.ci",
+    "role": "super_admin",
+    "department": "all"
+  },
+  "tokens": {
+    "access_token": "eyJ...",
+    "refresh_token": "eyJ...",
+    "expires_in": 3600
+  },
+  "permissions": ["*"]
+}
+```
+
+### 5. Refresh Token
+
+```bash
+POST /api/auth/refresh
+```
+
+**Body:**
+```json
+{
+  "refresh_token": "eyJ..."
+}
+```
+
+### 6. Logout
+
+```bash
+POST /api/auth/logout
+```
+
+**Body:**
+```json
+{
+  "user_id": "uuid",
+  "refresh_token": "eyJ..."
+}
+```
+
+### 7. Forgot Password
+
+```bash
+POST /api/auth/admin/forgot-password
+```
+
+**Body:**
+```json
+{
+  "email": "admin@ono.ci"
+}
+```
+
+### 8. Reset Password
+
+```bash
+POST /api/auth/admin/reset-password
+```
+
+**Body:**
+```json
+{
+  "reset_token": "uuid",
+  "otp_code": "1234",
+  "new_password": "NewPass123"
+}
+```
+
+---
+
+## 🎯 Rôles & Permissions
+
+### Rôles Admin
+
+- **super_admin** - Accès total (department: all)
+- **gestionnaire** - Accès département spécifique
+
+### Départements
+
+- **all** - Tous les modules
+- **food** - Restaurants
+- **delivery** - Livraisons
+- **pharmacy** - Pharmacies
+- **groceries** - Épiceries
+- **social** - Réseau social
+- **housing** - Immobilier
+- **insurance** - Assurances
+
+---
+
+## 📚 Voir Aussi
+
+- [Users](/api-reference/users) - Gestion utilisateurs
+- [Delivery](/api-reference/delivery-standard) - Livraisons
+- [Food](/api-reference/food) - Restaurants

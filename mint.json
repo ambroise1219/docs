@@ -1,0 +1,75 @@
+{
+  "name": "ONO Backend API",
+  "logo": {
+    "dark": "/logo.png",
+    "light": "/logo.png"
+  },
+  "favicon": "/logo.png",
+  "theme": "venus",
+  "colors": {
+    "primary": "#0D9373",
+    "light": "#07A684",
+    "dark": "#0A7D63"
+  },
+  "topbarLinks": [
+    {
+      "name": "Support",
+      "url": "mailto:support@ono.app"
+    }
+  ],
+  "topbarCtaButton": {
+    "name": "GitHub",
+    "url": "https://github.com/ono/ono-backend"
+  },
+  "navigation": [
+    {
+      "group": "Introduction",
+      "pages": [
+        "introduction",
+        "getting-started",
+        "architecture"
+      ]
+    },
+    {
+      "group": "API Documentation",
+      "pages": [
+        "api-reference/authentication",
+        "api-reference/users",
+        "api-reference/food",
+        "api-reference/pulse"
+      ]
+    },
+    {
+      "group": "Delivery Services",
+      "pages": [
+        "api-reference/delivery-overview",
+        "api-reference/delivery-standard",
+        "api-reference/delivery-grouped",
+        "api-reference/delivery-moving",
+        "api-reference/delivery-pricing-wallet",
+        "api-reference/delivery"
+      ]
+    },
+    {
+      "group": "Other Services",
+      "pages": [
+        "api-reference/groceries",
+        "api-reference/pharmacy",
+        "api-reference/social"
+      ]
+    },
+    {
+      "group": "Guides",
+      "pages": [
+        "guides/local-development",
+        "guides/pulse-integration",
+        "guides/deployment",
+        "guides/testing"
+      ]
+    }
+  ],
+  "footerSocials": {
+    "twitter": "https://twitter.com/onoplatform",
+    "github": "https://github.com/ono/ono-backend"
+  }
+}

@@ -1,0 +1,422 @@
+# Testing
+
+Ce guide explique comment tester l'API ONO Backend, y compris les tests unitaires, d'intégration et de performance.
+
+## 🧪 Types de tests
+
+L'API ONO Backend utilise plusieurs types de tests pour garantir la qualité du code :
+
+1. **Tests unitaires** - Testent des unités individuelles de code
+2. **Tests d'intégration** - Testent l'interaction entre les composants
+3. **Tests d'API** - Testent les endpoints HTTP
+4. **Tests de performance** - Évaluent les performances sous charge
+
+## 🛠️ Configuration des tests
+
+### Variables d'environnement de test
+
+Créez un fichier `.env.test` pour les tests :
+
+```env
+ENVIRONMENT=testing
+TEST_DATABASE_URL=postgresql://user:password@localhost:5432/ono_test
+JWT_SECRET=test-secret-key
+```
+
+### Base de données de test
+
+Créez une base de données dédiée aux tests :
+
+```sql
+CREATE DATABASE ono_test;
+```
+
+## 🧪 Tests unitaires
+
+### Exécuter tous les tests unitaires
+
+```bash
+cargo test
+```
+
+### Exécuter les tests d'un module spécifique
+
+```bash
+cargo test food
+cargo test delivery
+cargo test auth
+```
+
+### Exemple de test unitaire
+
+```rust
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_calculate_delivery_fee() {
+        let distance = 5.0; // 5 km
+        let expected_fee = 1500; // 1500 XOF
+        let fee = calculate_delivery_fee(distance);
+        assert_eq!(fee, expected_fee);
+    }
+}
+```
+
+## 🔌 Tests d'intégration
+
+### Scripts de test shell
+
+Le projet inclut plusieurs scripts de test d'intégration :
+
+```bash
+# Tester toutes les fonctionnalités food
+./tests/test_all_food_endpoints.sh
+
+# Tester le CRUD des catégories
+./tests/food_categories_test.sh
+
+# Tester le CRUD des suppléments
+./tests/food_supplements_test.sh
+
+# Tester le flux complet
+./tests/food_complete_flow_test.sh
+
+# Test rapide
+./tests/food_quick_test.sh
+```
+
+### Exemple de script de test
+
+```bash
+#!/bin/bash
+
+# test_restaurant_crud.sh
+
+echo "=== Test CRUD Restaurant ==="
+
+# Créer un restaurant
+echo "1. Création d'un restaurant..."
+response=$(curl -s -X POST http://localhost:3000/api/food/restaurants \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Test Restaurant",
+    "address": "123 Test Street",
+    "city": "Test City"
+  }')
+
+restaurant_id=$(echo $response | jq -r '.data.id')
+echo "Restaurant créé avec ID: $restaurant_id"
+
+# Récupérer le restaurant
+echo "2. Récupération du restaurant..."
+curl -s -X GET http://localhost:3000/api/food/restaurants/$restaurant_id \
+  -H "Authorization: Bearer $TOKEN"
+
+# Mettre à jour le restaurant
+echo "3. Mise à jour du restaurant..."
+curl -s -X PUT http://localhost:3000/api/food/restaurants/$restaurant_id \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Updated Test Restaurant"
+  }'
+
+# Supprimer le restaurant
+echo "4. Suppression du restaurant..."
+curl -s -X DELETE http://localhost:3000/api/food/restaurants/$restaurant_id \
+  -H "Authorization: Bearer $TOKEN"
+
+echo "=== Test terminé ==="
+```
+
+## 🌐 Tests d'API avec Postman
+
+### Collections Postman
+
+Le projet inclut des collections Postman pour tester les APIs :
+
+- `ONO_FOOD.postman_collection.json` - Tests pour le module Food
+- `ONO_USERS.postman_collection.json` - Tests pour le module Users
+
+### Exécution avec Newman
+
+Installez Newman pour exécuter les collections Postman en ligne de commande :
+
+```bash
+npm install -g newman
+```
+
+Exécutez une collection :
+
+```bash
+newman run ONO_FOOD.postman_collection.json -e environment.json
+```
+
+## 🚀 Tests de performance
+
+### Configuration k6
+
+k6 est un outil de test de performance pour les APIs. Créez un fichier de test [k6](file:///Users/ambroisek/Documents/ono/ono_backend/target/debug/ono-backend) :
+
+```javascript
+// food_performance_test.js
+
+import http from 'k6/http';
+import { check, sleep } from 'k6';
+
+export let options = {
+  stages: [
+    { duration: '30s', target: 100 }, // Monter à 100 utilisateurs en 30s
+    { duration: '1m', target: 100 },  // Rester à 100 utilisateurs pendant 1m
+    { duration: '30s', target: 0 },   // Redescendre à 0 utilisateurs en 30s
+  ],
+};
+
+export default function () {
+  // Test de l'endpoint de liste des restaurants
+  let res = http.get('http://localhost:3000/api/food/restaurants');
+  check(res, {
+    'status is 200': (r) => r.status === 200,
+  });
+  
+  sleep(1);
+}
+```
+
+Exécutez le test :
+
+```bash
+k6 run food_performance_test.js
+```
+
+### Résultats de test k6
+
+k6 fournit des métriques détaillées :
+
+```
+data_received..............: 1.2 MB 20 kB/s
+data_sent..................: 60 kB  1.0 kB/s
+http_req_blocked...........: avg=1.2ms  min=0s     med=0s     max=15ms   p(90)=3ms    p(95)=5ms
+http_req_connecting........: avg=0.8ms  min=0s     med=0s     max=10ms   p(90)=2ms    p(95)=3ms
+http_req_duration..........: avg=45ms   min=30ms   med=42ms   max=120ms  p(90)=55ms   p(95)=65ms
+http_req_receiving.........: avg=0.5ms  min=0s     med=0s     max=5ms    p(90)=1ms    p(95)=2ms
+http_req_sending...........: avg=0.3ms  min=0s     med=0s     max=3ms    p(90)=0.5ms  p(95)=1ms
+http_req_waiting...........: avg=44ms   min=29ms   med=41ms   max=119ms  p(90)=54ms   p(95)=64ms
+http_reqs..................: 1500   25.0/s
+iteration_duration.........: avg=1.04s  min=1.03s  med=1.04s  max=1.15s  p(90)=1.05s  p(95)=1.06s
+iterations.................: 1500   25.0/s
+vus........................: 100    min=100  max=100
+vus_max....................: 100    min=100  max=100
+```
+
+## 🧰 Outils de test
+
+### Cargo test
+
+L'outil de test intégré de Rust :
+
+```bash
+# Exécuter tous les tests
+cargo test
+
+# Exécuter les tests avec plus de verbosité
+cargo test -- --nocapture
+
+# Exécuter les tests en parallèle
+cargo test -- --test-threads=4
+
+# Exécuter un test spécifique
+cargo test test_function_name
+```
+
+### SQLx pour les tests de base de données
+
+```rust
+#[cfg(test)]
+mod db_tests {
+    use sqlx::PgPool;
+
+    #[sqlx::test]
+    async fn test_user_creation(pool: PgPool) -> sqlx::Result<()> {
+        let user = create_user(&pool, "test@example.com").await?;
+        assert_eq!(user.email, "test@example.com");
+        Ok(())
+    }
+}
+```
+
+### Mocking avec mockall
+
+Pour mocker les dépendances dans les tests :
+
+```rust
+#[cfg(test)]
+use mockall::*;
+
+#[cfg_attr(test, automock)]
+trait PaymentService {
+    fn process_payment(&self, amount: u32) -> Result<(), PaymentError>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_process_order() {
+        let mut mock_payment = MockPaymentService::new();
+        mock_payment
+            .expect_process_payment()
+            .with(eq(1000))
+            .times(1)
+            .returning(|_| Ok(()));
+            
+        let result = process_order(&mock_payment, 1000);
+        assert!(result.is_ok());
+    }
+}
+```
+
+## 📊 Couverture de test
+
+### Installation de cargo-tarpaulin
+
+```bash
+cargo install cargo-tarpaulin
+```
+
+### Générer un rapport de couverture
+
+```bash
+cargo tarpaulin --out Html
+```
+
+Cela générera un rapport HTML dans `tarpaulin-report.html`.
+
+## 🔍 Tests de mutation avec cargo-mutants
+
+### Installation
+
+```bash
+cargo install cargo-mutants
+```
+
+### Exécuter les tests de mutation
+
+```bash
+cargo mutants
+```
+
+## 🛡️ Tests de sécurité
+
+### Audit des dépendances
+
+```bash
+cargo audit
+```
+
+### Tests d'injection SQL
+
+Utilisez sqlmap ou des tests manuels pour vérifier les vulnérabilités d'injection SQL :
+
+```bash
+# Exemple de test d'injection SQL
+curl "http://localhost:3000/api/food/restaurants?city=' OR '1'='1"
+```
+
+## 📈 Tests de charge avec wrk
+
+### Installation
+
+```bash
+# Sur macOS
+brew install wrk
+
+# Sur Ubuntu
+sudo apt-get install wrk
+```
+
+### Exécuter un test de charge
+
+```bash
+wrk -t12 -c400 -d30s http://localhost:3000/api/food/restaurants
+```
+
+Options :
+- `-t12` : 12 threads
+- `-c400` : 400 connexions HTTP
+- `-d30s` : Durée du test (30 secondes)
+
+## 🧹 Bonnes pratiques de test
+
+### 1. Structure des tests
+
+```rust
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Given-When-Then pattern
+    #[test]
+    fn test_create_restaurant_success() {
+        // Given
+        let restaurant_data = RestaurantData {
+            name: "Test Restaurant".to_string(),
+            // ... autres champs
+        };
+        
+        // When
+        let result = create_restaurant(restaurant_data);
+        
+        // Then
+        assert!(result.is_ok());
+        let restaurant = result.unwrap();
+        assert_eq!(restaurant.name, "Test Restaurant");
+    }
+}
+```
+
+### 2. Tests paramétrés
+
+```rust
+#[cfg(test)]
+mod parameterized_tests {
+    use super::*;
+    use test_case::test_case;
+
+    #[test_case(1.0, 2.0, 3.0; "positive numbers")]
+    #[test_case(-1.0, -2.0, -3.0; "negative numbers")]
+    #[test_case(0.0, 0.0, 0.0; "zeros")]
+    fn test_add(a: f64, b: f64, expected: f64) {
+        assert_eq!(add(a, b), expected);
+    }
+}
+```
+
+### 3. Tests d'erreurs
+
+```rust
+#[test]
+fn test_create_restaurant_invalid_data() {
+    // Given
+    let invalid_data = RestaurantData {
+        name: "".to_string(), // Nom vide
+        // ... autres champs invalides
+    };
+    
+    // When
+    let result = create_restaurant(invalid_data);
+    
+    // Then
+    assert!(result.is_err());
+    match result.unwrap_err() {
+        RestaurantError::ValidationError(_) => (),
+        _ => panic!("Expected ValidationError"),
+    }
+}
+```
+
+Avec ces outils et pratiques, vous pouvez garantir la qualité, la fiabilité et les performances de l'API ONO Backend.

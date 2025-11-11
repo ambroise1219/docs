@@ -1,0 +1,38 @@
+# Introduction
+
+Bienvenue dans la documentation de l'API ONO Backend ! 🚀
+
+L'API ONO Backend est une solution modulaire en Rust qui alimente l'ensemble de la plateforme ONO. Elle fournit des services pour plusieurs domaines d'activité, notamment la restauration, la livraison, l'épicerie, les médicaments, les réseaux sociaux et bientôt l'immobilier et l'assurance.
+
+## 🏗️ Architecture
+
+L'API suit une architecture multi-base de données où chaque domaine métier possède sa propre base de données PostgreSQL, avec une base centrale pour les données partagées comme les utilisateurs et l'authentification.
+
+### Domaines pris en charge
+
+- **Food** - Restaurants et commandes alimentaires
+- **Delivery** - Système de livraison complet
+- **Groceries** - Épicerie en ligne
+- **Pharmacy** - Pharmacies et services médicaux
+- **Social** - Réseau social de type TikTok
+- **Housing** - Immobilier (à implémenter)
+- **Insurance** - Assurance (à implémenter)
+
+## 🚀 Technologies
+
+- **Langage** : Rust (édition 2021)
+- **Framework web** : Axum + Tower HTTP
+- **Base de données** : PostgreSQL (multi-bases via SQLx)
+- **Cache et messagerie** : Redis
+- **Authentification** : OTP (Wanotifier) + JWT
+- **Temps réel** : Pulse (gRPC Tonic, WebSocket, SSE)
+- **Documentation API** : Utoipa + Swagger UI
+
+## 📦 Performance
+
+L'API est optimisée pour des performances maximales avec :
+
+- Utilisation de mimalloc comme allocateur mémoire
+- Support HTTP/2 et HTTP/3
+- Compression Zstandard et LZ4
+- Connexions optimisées avec deadpool-postgres et deadpool-redis

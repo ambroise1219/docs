@@ -1,0 +1,783 @@
+# Moving Service API
+
+<Note>
+  **Production Ready** - Service de déménagement complet avec gestion d'inventaire et équipe
+</Note>
+
+Le service de déménagement offre une solution complète pour les déménagements résidentiels et commerciaux avec gestion d'inventaire détaillée, calcul automatique des besoins, et tracking des dommages.
+
+## 🚀 Quick Start
+
+<Steps>
+  <Step title="Créer le déménagement">
+    Informations de base + détails propriété
+  </Step>
+  <Step title="Ajouter l'inventaire">
+    Liste détaillée des meubles et objets
+  </Step>
+  <Step title="Calcul automatique">
+    Système calcule véhicules et movers nécessaires
+  </Step>
+  <Step title="Assigner l'équipe">
+    Leader + movers + driver
+  </Step>
+  <Step title="Suivi en temps réel">
+    Progression avec photos et tracking dommages
+  </Step>
+</Steps>
+
+## 📦 Caractéristiques
+
+<CardGroup cols={2}>
+  <Card title="Inventaire Détaillé" icon="clipboard-list">
+    Gestion complète des items
+    - Catégories (meubles, électroménager, boxes)
+    - Volume et poids
+    - Photos avant/après
+    - Instructions de manipulation
+  </Card>
+  
+  <Card title="Calcul Automatique" icon="calculator">
+    Besoins calculés automatiquement
+    - Nombre de véhicules
+    - Nombre de déménageurs
+    - Durée estimée
+    - Score de difficulté
+  </Card>
+  
+  <Card title="Équipe Complète" icon="users">
+    Gestion d'équipe
+    - Leader (chef d'équipe)
+    - Movers (déménageurs)
+    - Driver (chauffeur)
+    - Assistant
+  </Card>
+  
+  <Card title="Tracking Dommages" icon="shield-exclamation">
+    Protection et suivi
+    - Photos avant déménagement
+    - Rapport de dommages
+    - Items perdus
+    - Compensation
+  </Card>
+</CardGroup>
+
+## 💻 Setup & Configuration
+
+### Schémas Zod
+
+```typescript
+// lib/schemas/moving.schema.ts
+import { z } from 'zod';
+import { LocationSchema } from './delivery.schema';
+
+export const PropertyTypeSchema = z.enum(['apartment', 'house', 'office', 'storage']);
+export const FurnitureCategorySchema = z.enum(['furniture', 'appliance', 'electronics', 'boxes', 'other']);
+export const TeamRoleSchema = z.enum(['leader', 'mover', 'driver', 'assistant']);
+
+export const InventoryItemSchema = z.object({
+  name: z.string().min(2).max(200),
+  category: FurnitureCategorySchema,
+  quantity: z.number().int().min(1).max(1000),
+  volume_m3: z.number().positive().max(100),
+  weight_kg: z.number().positive().max(10000),
+  is_fragile: z.boolean().default(false),
+  requires_disassembly: z.boolean().default(false),
+  requires_special_care: z.boolean().default(false),
+  description: z.string().optional(),
+  handling_instructions: z.string().optional(),
+  photos: z.array(z.string().url()).optional(),
+});
+
+export const CreateMovingSchema = z.object({
+  pickup_address: z.string().min(5),
+  pickup_location: LocationSchema,
+  pickup_contact: z.string().regex(/^\+225\d{10}$/),
+  pickup_instructions: z.string().optional(),
+  
+  delivery_address: z.string().min(5),
+  delivery_location: LocationSchema,
+  delivery_contact: z.string().regex(/^\+225\d{10}$/),
+  delivery_instructions: z.string().optional(),
+  
+  property_type: PropertyTypeSchema,
+  floor_number: z.number().int().min(0).max(50).optional(),
+  has_elevator: z.boolean(),
+  
+  moving_date: z.string().datetime(),
+  scheduled_start_time: z.string().datetime().optional(),
+  
+  priority: z.enum(['Normal', 'Urgent']).default('Normal'),
+  payment_method: z.enum(['Cash', 'Card', 'MobileMoney']),
+  
+  customer_notes: z.string().optional(),
+  special_requirements: z.string().optional(),
+});
+
+export const TeamMemberSchema = z.object({
+  agent_id: z.string().uuid(),
+  role: TeamRoleSchema,
+  notes: z.string().optional(),
+});
+
+export type InventoryItem = z.infer<typeof InventoryItemSchema>;
+export type CreateMovingInput = z.infer<typeof CreateMovingSchema>;
+export type TeamMember = z.infer<typeof TeamMemberSchema>;
+```
+
+## 🔌 API Hooks (TanStack Query)
+
+```typescript
+// lib/api/hooks/useMoving.ts
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import api from '../axios';
+import { CreateMovingInput, InventoryItem, TeamMember } from '@/lib/schemas/moving.schema';
+
+// Créer un déménagement
+export const useCreateMoving = () => {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: async (data: CreateMovingInput) => {
+      const response = await api.post('/api/delivery/moving/orders', data);
+      return response.data.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['movings'] });
+    },
+  });
+};
+
+// Récupérer un déménagement
+export const useMoving = (movingId: string) => {
+  return useQuery({
+    queryKey: ['moving', movingId],
+    queryFn: async () => {
+      const response = await api.get(`/api/delivery/moving/orders/${movingId}`);
+      return response.data.data;
+    },
+    enabled: !!movingId,
+  });
+};
+
+// Ajouter des items à l'inventaire
+export const useAddInventory = () => {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: async ({ movingId, items }: { movingId: string; items: InventoryItem[] }) => {
+      const response = await api.post(
+        `/api/delivery/moving/orders/${movingId}/inventory`,
+        { items }
+      );
+      return response.data.data;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['moving', variables.movingId] });
+      queryClient.invalidateQueries({ queryKey: ['inventory', variables.movingId] });
+    },
+  });
+};
+
+// Récupérer l'inventaire
+export const useInventory = (movingId: string) => {
+  return useQuery({
+    queryKey: ['inventory', movingId],
+    queryFn: async () => {
+      const response = await api.get(`/api/delivery/moving/orders/${movingId}/inventory`);
+      return response.data.data;
+    },
+    enabled: !!movingId,
+  });
+};
+
+// Calculer les besoins
+export const useMovingRequirements = (movingId: string) => {
+  return useQuery({
+    queryKey: ['requirements', movingId],
+    queryFn: async () => {
+      const response = await api.get(`/api/delivery/moving/orders/${movingId}/requirements`);
+      return response.data.data;
+    },
+    enabled: !!movingId,
+  });
+};
+
+// Assigner une équipe
+export const useAssignTeam = () => {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: async ({ movingId, team }: { movingId: string; team: TeamMember[] }) => {
+      const response = await api.post(
+        `/api/delivery/moving/orders/${movingId}/team`,
+        { team_members: team }
+      );
+      return response.data.data;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['moving', variables.movingId] });
+    },
+  });
+};
+
+// Reporter un dommage
+export const useReportDamage = () => {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: async ({
+      movingId,
+      itemId,
+      damageType,
+      description,
+      photos,
+    }: {
+      movingId: string;
+      itemId: string;
+      damageType: string;
+      description: string;
+      photos?: string[];
+    }) => {
+      const response = await api.post(
+        `/api/delivery/moving/orders/${movingId}/inventory/${itemId}/report-damage`,
+        { damage_type: damageType, description, photos }
+      );
+      return response.data.data;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['moving', variables.movingId] });
+      queryClient.invalidateQueries({ queryKey: ['inventory', variables.movingId] });
+    },
+  });
+};
+```
+
+## 🎨 Composants React / Next.js
+
+### Formulaire de création
+
+```typescript
+// components/CreateMovingForm.tsx
+'use client';
+
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { CreateMovingSchema, CreateMovingInput } from '@/lib/schemas/moving.schema';
+import { useCreateMoving } from '@/lib/api/hooks/useMoving';
+
+export default function CreateMovingForm() {
+  const { mutate: createMoving, isPending } = useCreateMoving();
+  
+  const {
+    register,
+    handleSubmit,
+    formState: { errors },
+  } = useForm<CreateMovingInput>({
+    resolver: zodResolver(CreateMovingSchema),
+    defaultValues: {
+      property_type: 'apartment',
+      has_elevator: false,
+      priority: 'Normal',
+    },
+  });
+  
+  const onSubmit = (data: CreateMovingInput) => {
+    createMoving(data, {
+      onSuccess: (moving) => {
+        window.location.href = `/moving/${moving.id}/inventory`;
+      },
+    });
+  };
+  
+  return (
+    <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+      {/* Pickup Section */}
+      <div className="bg-white p-4 rounded shadow">
+        <h3 className="font-bold mb-4">Adresse de départ</h3>
+        <div className="space-y-4">
+          <input
+            {...register('pickup_address')}
+            className="w-full p-2 border rounded"
+            placeholder="Appartement Cocody Riviera"
+          />
+          {/* Autres champs pickup... */}
+        </div>
+      </div>
+      
+      {/* Delivery Section */}
+      <div className="bg-white p-4 rounded shadow">
+        <h3 className="font-bold mb-4">Adresse d'arrivée</h3>
+        {/* Champs delivery... */}
+      </div>
+      
+      {/* Property Details */}
+      <div className="bg-white p-4 rounded shadow">
+        <h3 className="font-bold mb-4">Détails de la propriété</h3>
+        
+        <div className="space-y-4">
+          <div>
+            <label>Type de propriété</label>
+            <select {...register('property_type')} className="w-full p-2 border rounded">
+              <option value="apartment">Appartement</option>
+              <option value="house">Maison</option>
+              <option value="office">Bureau</option>
+              <option value="storage">Entrepôt</option>
+            </select>
+          </div>
+          
+          <div>
+            <label>Étage</label>
+            <input
+              {...register('floor_number', { valueAsNumber: true })}
+              type="number"
+              className="w-full p-2 border rounded"
+              placeholder="3"
+            />
+          </div>
+          
+          <div className="flex items-center gap-2">
+            <input {...register('has_elevator')} type="checkbox" />
+            <label>Ascenseur disponible</label>
+          </div>
+        </div>
+      </div>
+      
+      {/* Date & Time */}
+      <div className="bg-white p-4 rounded shadow">
+        <h3 className="font-bold mb-4">Date et heure</h3>
+        <input
+          {...register('moving_date')}
+          type="datetime-local"
+          className="w-full p-2 border rounded"
+        />
+      </div>
+      
+      <button
+        type="submit"
+        disabled={isPending}
+        className="w-full bg-blue-500 text-white p-3 rounded font-bold"
+      >
+        {isPending ? 'Création...' : 'Créer le déménagement'}
+      </button>
+    </form>
+  );
+}
+```
+
+### Gestion d'inventaire
+
+```typescript
+// components/InventoryManager.tsx
+'use client';
+
+import { useFieldArray, useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
+import { InventoryItemSchema } from '@/lib/schemas/moving.schema';
+import { useAddInventory, useInventory, useMovingRequirements } from '@/lib/api/hooks/useMoving';
+
+const InventoryFormSchema = z.object({
+  items: z.array(InventoryItemSchema),
+});
+
+type InventoryFormInput = z.infer<typeof InventoryFormSchema>;
+
+export default function InventoryManager({ movingId }: { movingId: string }) {
+  const { data: existingInventory } = useInventory(movingId);
+  const { data: requirements } = useMovingRequirements(movingId);
+  const { mutate: addInventory, isPending } = useAddInventory();
+  
+  const { register, control, handleSubmit, formState: { errors } } = useForm<InventoryFormInput>({
+    resolver: zodResolver(InventoryFormSchema),
+    defaultValues: {
+      items: [
+        {
+          name: '',
+          category: 'furniture',
+          quantity: 1,
+          volume_m3: 0,
+          weight_kg: 0,
+          is_fragile: false,
+          requires_disassembly: false,
+          requires_special_care: false,
+        },
+      ],
+    },
+  });
+  
+  const { fields, append, remove } = useFieldArray({
+    control,
+    name: 'items',
+  });
+  
+  const onSubmit = (data: InventoryFormInput) => {
+    addInventory(
+      { movingId, items: data.items },
+      {
+        onSuccess: () => {
+          alert('Inventaire ajouté avec succès !');
+        },
+      }
+    );
+  };
+  
+  return (
+    <div className="space-y-6">
+      {/* Requirements Summary */}
+      {requirements && (
+        <div className="bg-blue-50 p-4 rounded">
+          <h3 className="font-bold mb-2">Besoins calculés</h3>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <p className="text-sm text-gray-600">Véhicules</p>
+              <p className="text-2xl font-bold">{requirements.required_vehicles}</p>
+            </div>
+            <div>
+              <p className="text-sm text-gray-600">Déménageurs</p>
+              <p className="text-2xl font-bold">{requirements.required_movers}</p>
+            </div>
+            <div>
+              <p className="text-sm text-gray-600">Volume total</p>
+              <p className="text-2xl font-bold">{requirements.total_volume_m3.toFixed(2)} m³</p>
+            </div>
+            <div>
+              <p className="text-sm text-gray-600">Durée estimée</p>
+              <p className="text-2xl font-bold">{requirements.estimated_duration_hours.toFixed(1)}h</p>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Existing Inventory */}
+      {existingInventory && existingInventory.length > 0 && (
+        <div className="bg-white p-4 rounded shadow">
+          <h3 className="font-bold mb-4">Inventaire actuel ({existingInventory.length} items)</h3>
+          <div className="space-y-2">
+            {existingInventory.map((item: any) => (
+              <div key={item.id} className="border p-3 rounded flex justify-between">
+                <div>
+                  <p className="font-semibold">{item.name}</p>
+                  <p className="text-sm text-gray-600">
+                    {item.quantity}x • {item.volume_m3}m³ • {item.weight_kg}kg
+                    {item.is_fragile && ' • 🔴 Fragile'}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      
+      {/* Add Items Form */}
+      <form onSubmit={handleSubmit(onSubmit)} className="bg-white p-4 rounded shadow">
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="font-bold">Ajouter des items</h3>
+          <button
+            type="button"
+            onClick={() => append({
+              name: '',
+              category: 'furniture',
+              quantity: 1,
+              volume_m3: 0,
+              weight_kg: 0,
+              is_fragile: false,
+              requires_disassembly: false,
+              requires_special_care: false,
+            })}
+            className="bg-blue-500 text-white px-4 py-2 rounded"
+          >
+            + Ajouter un item
+          </button>
+        </div>
+        
+        <div className="space-y-4">
+          {fields.map((field, index) => (
+            <div key={field.id} className="border p-4 rounded">
+              <div className="flex justify-between items-center mb-2">
+                <h4 className="font-semibold">Item {index + 1}</h4>
+                {fields.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => remove(index)}
+                    className="text-red-500"
+                  >
+                    Supprimer
+                  </button>
+                )}
+              </div>
+              
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label>Nom</label>
+                  <input
+                    {...register(`items.${index}.name` as const)}
+                    className="w-full p-2 border rounded"
+                    placeholder="Canapé 3 places"
+                  />
+                </div>
+                
+                <div>
+                  <label>Catégorie</label>
+                  <select {...register(`items.${index}.category` as const)} className="w-full p-2 border rounded">
+                    <option value="furniture">Meubles</option>
+                    <option value="appliance">Électroménager</option>
+                    <option value="electronics">Électronique</option>
+                    <option value="boxes">Cartons</option>
+                    <option value="other">Autre</option>
+                  </select>
+                </div>
+                
+                <div>
+                  <label>Quantité</label>
+                  <input
+                    {...register(`items.${index}.quantity` as const, { valueAsNumber: true })}
+                    type="number"
+                    className="w-full p-2 border rounded"
+                  />
+                </div>
+                
+                <div>
+                  <label>Volume (m³)</label>
+                  <input
+                    {...register(`items.${index}.volume_m3` as const, { valueAsNumber: true })}
+                    type="number"
+                    step="0.1"
+                    className="w-full p-2 border rounded"
+                  />
+                </div>
+                
+                <div>
+                  <label>Poids (kg)</label>
+                  <input
+                    {...register(`items.${index}.weight_kg` as const, { valueAsNumber: true })}
+                    type="number"
+                    step="0.1"
+                    className="w-full p-2 border rounded"
+                  />
+                </div>
+                
+                <div className="flex flex-col gap-2">
+                  <div className="flex items-center gap-2">
+                    <input {...register(`items.${index}.is_fragile` as const)} type="checkbox" />
+                    <label>Fragile</label>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input {...register(`items.${index}.requires_disassembly` as const)} type="checkbox" />
+                    <label>Démontage requis</label>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+        
+        <button
+          type="submit"
+          disabled={isPending}
+          className="w-full bg-green-500 text-white p-3 rounded font-bold mt-4"
+        >
+          {isPending ? 'Ajout...' : 'Ajouter à l\'inventaire'}
+        </button>
+      </form>
+    </div>
+  );
+}
+```
+
+## 📡 Endpoints API
+
+### 1. Créer un déménagement
+
+```bash
+POST /api/delivery/moving/orders
+Authorization: Bearer <access_token>
+Content-Type: application/json
+
+{
+  "pickup_address": "Appartement Cocody Riviera",
+  "pickup_location": {"lat": 5.36, "lng": -4.01},
+  "pickup_contact": "+225 0101010101",
+  "delivery_address": "Maison Marcory Zone 4",
+  "delivery_location": {"lat": 5.30, "lng": -3.98},
+  "delivery_contact": "+225 0202020202",
+  "property_type": "apartment",
+  "floor_number": 3,
+  "has_elevator": false,
+  "moving_date": "2025-11-10T08:00:00Z",
+  "priority": "Normal",
+  "payment_method": "Cash"
+}
+```
+
+### 2. Ajouter des items à l'inventaire
+
+```bash
+POST /api/delivery/moving/orders/{moving_id}/inventory
+Authorization: Bearer <access_token>
+Content-Type: application/json
+
+{
+  "items": [
+    {
+      "name": "Canapé 3 places",
+      "category": "furniture",
+      "quantity": 1,
+      "volume_m3": 2.5,
+      "weight_kg": 80.0,
+      "is_fragile": false,
+      "requires_disassembly": true,
+      "requires_special_care": false
+    },
+    {
+      "name": "Réfrigérateur",
+      "category": "appliance",
+      "quantity": 1,
+      "volume_m3": 1.2,
+      "weight_kg": 100.0,
+      "is_fragile": false,
+      "requires_disassembly": false,
+      "requires_special_care": true
+    }
+  ]
+}
+```
+
+### 3. Calculer les besoins
+
+```bash
+GET /api/delivery/moving/orders/{moving_id}/requirements
+Authorization: Bearer <access_token>
+```
+
+**Réponse** :
+```json
+{
+  "success": true,
+  "data": {
+    "moving_id": "uuid",
+    "total_volume_m3": 15.5,
+    "total_weight_kg": 850.0,
+    "total_items": 25,
+    "fragile_items": 5,
+    "items_requiring_disassembly": 8,
+    "required_vehicles": 1,
+    "required_movers": 3,
+    "estimated_duration_hours": 6.5,
+    "difficulty_score": 7
+  }
+}
+```
+
+### 4. Assigner une équipe
+
+```bash
+POST /api/delivery/moving/orders/{moving_id}/team
+Authorization: Bearer <access_token>
+Content-Type: application/json
+
+{
+  "team_members": [
+    {
+      "agent_id": "uuid-1",
+      "role": "leader",
+      "notes": "Chef d'équipe expérimenté"
+    },
+    {
+      "agent_id": "uuid-2",
+      "role": "mover"
+    },
+    {
+      "agent_id": "uuid-3",
+      "role": "mover"
+    },
+    {
+      "agent_id": "uuid-4",
+      "role": "driver"
+    }
+  ]
+}
+```
+
+### 5. Reporter un dommage
+
+```bash
+POST /api/delivery/moving/orders/{moving_id}/inventory/{item_id}/report-damage
+Authorization: Bearer <agent_token>
+Content-Type: application/json
+
+{
+  "damage_type": "scratch",
+  "description": "Rayure sur le côté gauche",
+  "photos": ["https://..."]
+}
+```
+
+## 💰 Tarification
+
+### Formule
+
+```
+Prix Total = Base + Distance + Volume + Difficulté Étage
+```
+
+**Détails** :
+- **Base** : 10000 FCFA
+- **Distance** : Distance × 500 FCFA/km
+- **Volume** : Volume × 2000 FCFA/m³
+- **Étage** : (Étage × 500 FCFA) × (Ascenseur ? 0.5 : 1.0)
+
+### Exemple
+
+**Déménagement** :
+- Distance : 15 km
+- Volume : 20 m³
+- Étage : 3 (sans ascenseur)
+
+**Calcul** :
+- Base : 10000 FCFA
+- Distance : 15 × 500 = 7500 FCFA
+- Volume : 20 × 2000 = 40000 FCFA
+- Étage : 3 × 500 × 1.0 = 1500 FCFA
+- **Total** : 59000 FCFA
+
+## 🎯 Cas d'Usage
+
+### Déménagement Résidentiel
+
+```typescript
+// Workflow complet
+const handleResidentialMove = async () => {
+  // 1. Créer le déménagement
+  const moving = await createMoving({
+    pickup_address: "Appartement actuel",
+    delivery_address: "Nouvelle maison",
+    property_type: "apartment",
+    floor_number: 3,
+    has_elevator: false,
+    moving_date: "2025-11-10T08:00:00Z",
+  });
+  
+  // 2. Ajouter l'inventaire
+  await addInventory({
+    movingId: moving.id,
+    items: furnitureList,
+  });
+  
+  // 3. Vérifier les besoins
+  const requirements = await getRequirements(moving.id);
+  console.log(`Besoin de ${requirements.required_movers} déménageurs`);
+  
+  // 4. Assigner l'équipe
+  await assignTeam({
+    movingId: moving.id,
+    team: selectedTeam,
+  });
+};
+```
+
+## 📚 Voir Aussi
+
+- [Standard Delivery](/api-reference/delivery-standard) - Livraisons point-à-point
+- [Grouped Delivery](/api-reference/delivery-grouped) - Livraisons multi-zones
+- [Pricing & Wallet](/api-reference/delivery-pricing-wallet) - Configuration des frais

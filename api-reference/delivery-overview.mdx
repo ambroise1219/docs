@@ -1,0 +1,170 @@
+# Delivery API - Overview
+
+L'API Delivery est organisée en trois modules spécialisés pour répondre à différents besoins de livraison.
+
+## 📦 Modules de Livraison
+
+### [Standard Delivery](/api-reference/delivery-standard)
+Livraisons point-à-point simples et express
+- Livraison Standard (2-4h)
+- Livraison Express (30-60min)
+- Idéal pour: Documents, colis, courses urgentes
+
+### [Grouped Delivery](/api-reference/delivery-grouped)
+Livraisons groupées multi-zones
+- 1 point de départ, 1-5 destinations
+- Optimisation de trajet
+- Idéal pour: E-commerce, distribution, logistique B2B
+
+### [Moving Service](/api-reference/delivery-moving)
+Service de déménagement complet
+- Gestion d'inventaire détaillée
+- Équipes de déménageurs
+- Calcul automatique des besoins
+- Idéal pour: Déménagements résidentiels, bureaux, stockage
+
+## 🔐 Authentification
+
+Toutes les routes de l'API Delivery nécessitent une authentification via JWT token:
+
+```http
+Authorization: Bearer <access_token>
+```
+
+## 📍 Ressources Partagées
+
+Certaines ressources sont communes à tous les modules de livraison:
+
+### Estimation de prix
+
+```http
+GET /api/delivery/price-estimate
+pickup_latitude=5.345317&pickup_longitude=-4.024429&dropoff_latitude=5.354595&dropoff_longitude=-3.997498
+```
+
+### Gestion des agents
+
+```http
+# Créer un profil livreur
+POST /api/delivery/agents
+
+# Récupérer mon profil livreur
+GET /api/delivery/agents/me
+
+# Mettre à jour ma localisation
+PUT /api/delivery/agents/location
+
+# Mettre à jour mon statut
+PUT /api/delivery/agents/status
+
+# Démarrer mon shift
+POST /api/delivery/agents/shift/start
+
+# Terminer mon shift
+POST /api/delivery/agents/shift/end
+```
+
+### Gestion des véhicules
+
+```http
+# Créer un véhicule
+POST /api/delivery/vehicles
+
+# Lister mes véhicules
+GET /api/delivery/vehicles/me
+
+# Récupérer un véhicule
+GET /api/delivery/vehicles/{vehicle_id}
+
+# Mettre à jour un véhicule
+PUT /api/delivery/vehicles/{vehicle_id}
+
+# Supprimer un véhicule
+DELETE /api/delivery/vehicles/{vehicle_id}
+
+# Définir comme véhicule principal
+POST /api/delivery/vehicles/{vehicle_id}/primary
+```
+
+### Évaluations
+
+```http
+# Créer une évaluation
+POST /api/delivery/orders/{order_id}/rate
+
+# Récupérer l'évaluation d'une commande
+GET /api/delivery/orders/{order_id}/rating
+```
+
+## 💡 Bonnes Pratiques
+
+### 1. Choisir le Bon Service
+Utilisez le service adapté à votre besoin pour optimiser les coûts et l'efficacité.
+
+### 2. Fournir des Informations Complètes
+Plus les informations sont détaillées, meilleure sera l'expérience:
+- Adresses précises avec coordonnées GPS
+- Numéros de contact valides
+- Instructions de livraison claires
+- Description précise des colis
+
+### 3. Planifier à l'Avance
+Pour les livraisons groupées et déménagements:
+- Réservez au moins 24h à l'avance
+- Préparez l'inventaire en amont
+- Confirmez les disponibilités
+
+### 4. Gérer les Annulations
+- Annulez le plus tôt possible
+- Des frais peuvent s'appliquer selon le statut
+- Vérifiez les conditions d'annulation
+
+### 5. Suivre en Temps Réel
+Utilisez les endpoints de suivi pour:
+- Voir la position de l'agent
+- Recevoir des notifications
+- Communiquer avec le livreur
+
+## 📱 Intégration
+
+### Webhooks
+Recevez des notifications en temps réel:
+- Changement de statut
+- Assignation d'agent
+- Livraison complétée
+- Problèmes de livraison
+
+### WebSocket
+Suivi en temps réel de la position des agents.
+
+## 🆘 Support
+
+### Codes d'Erreur Communs
+
+| Code | Description | Solution |
+|------|-------------|----------|
+| `400` | Requête invalide | Vérifier les paramètres |
+| `401` | Non authentifié | Vérifier le token |
+| `403` | Non autorisé | Vérifier les permissions |
+| `404` | Ressource non trouvée | Vérifier l'ID |
+| `409` | Conflit | Vérifier l'état de la ressource |
+| `500` | Erreur serveur | Contacter le support |
+
+### Contact Support
+- Email: support@ono.app
+- Téléphone: +225 XX XX XX XX XX
+- Documentation: https://docs.ono.app
+
+## 🚀 Exemples d'Intégration
+
+### E-commerce
+Utilisez Grouped Delivery pour livrer plusieurs commandes depuis votre entrepôt.
+
+### Marketplace
+Proposez Standard et Express pour les livraisons rapides.
+
+### Services de Déménagement
+Intégrez Moving Service pour offrir des déménagements complets.
+
+### Logistique B2B
+Combinez tous les services selon vos besoins.
